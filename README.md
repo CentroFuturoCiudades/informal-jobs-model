@@ -6,7 +6,7 @@ This repository estimates whether workers in the Guadalajara Metropolitan Area O
 
 </div>
 
-## 2. Data
+## 1. Data
 
 The sources of information used throughout the methodology were as follows:
 
@@ -56,36 +56,36 @@ The unit of analysis is the employed individuals or workers who appear in both d
 
 **Note:** The original files from both surveys are not necessarily included in this GitHub repository due to their size.
 
-## 3. Methodology
+## 2. Methodology
 
-### 3.1 Database structure
+### 2.1 Database structure
 In this step, we load the databases corresponding to the ENOE and the OD. We then filter the data to work exclusively with employed individuals and with observations corresponding to the area of interest (Jalisco). Additionally, for the ENOE, we calculate household size by counting the number of people associated with each household using their identifiers, while for the OD, this information is imported directly from the housing database.
 
 **Notebook**: `01_generate_enoe_od_base_dataframes.ipynb`
 **Module:** `generate_enoe_od_dataframes.py`
 
-### 3.2 Data Standarization
+### 2.2 Data Standarization
 In this section, we harmonize the gender, occupation, age, educational level, municipality, marital status, relationship to the head of household, household size, and economic sector attributes between the ENOE and OD datasets. Additionally, the informality label available in ENOE is standardized for its subsequent use. This step creates a common set of attributes across both datasets, which is necessary for their comparison and for the subsequent training and application of the Machine Learning models.
 
 **Notebook**: `02_harmonize_enoe_od.ipynb`
 **Module:** `harmonize_enoe_od_dataframes.py`
 
-### 3.3 ENOE–OD Diagnostics
+### 2.3 ENOE–OD Diagnostics
 The next step is to conduct a general diagnostic analysis of the variables that will be used as predictors in the Machine Learning models. After restricting both surveys to their common geographic coverage, we compare the weighted distributions of the harmonized attributes using their corresponding expansion factors. We also analyze how informality varies across predictor categories in ENOE, quantify missing or unspecified information in both datasets, and examine the economic sector separately due to its high proportion of unknown values in OD.
 
 **Notebook**: `03_diagnose_enoe_od_dataframes.ipynb`
 **Module:** `diagnose_enoe_od_dataframes.py`
 
-### 3.4 Economic Sector Assignment
+### 2.4 Economic Sector Assignment
 Next, three Machine Learning classifiers (Logistic Regression, Random Forest, and Histogram Gradient Boosting) are evaluated to predict the economic sector of OD workers with missing sector information. Two model specifications are considered, with and without educational level, and the best model from each specification is combined into a hybrid strategy. Workers with available education are classified using the education-based model, while workers without this information use the robust alternative. The final dataset includes both an assigned economic sector and the predicted probabilities for all four sector categories.
 
 **Notebook**: `04_impute_economic_sector.ipynb`
 **Module:** `impute_economic_sector.py`
 
-### 3.5 Informality Classification
+### 2.5 Informality Classification
 
-## 4. Results and Outputs
+## 3. Results and Outputs
 
-## 5. Repository Structure
+## 4. Repository Structure
 
-## 6. Usage
+## 5. Usage
