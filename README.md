@@ -180,7 +180,7 @@ For downstream applications, the main variables to retain are:
 
 The primary informality output is `prob_informal`. If a discrete formal/informal status is required, it can either be obtained using the 50% classification threshold or sampled probabilistically as
 
-$$I_i \sim \operatorname{Bernoulli}(p_i),$$
+$$I_i \sim \text{Bernoulli}(p_i),$$
 
 where $p_i$ is the value of `prob_informal` for worker $i$.
 
