@@ -22,13 +22,11 @@ def filter_common_geography(enoe, od, target_municipalities=TARGET_MUNICIPALITIE
 
     return enoe_common, od_common, geography_summary
 
-
 def calculate_weighted_distribution(dataframe, column, weight_column):
     distribution = dataframe.groupby(column, dropna=False)[weight_column].sum().reset_index(name="weighted_population")
     distribution["weighted_share"] = distribution["weighted_population"] / distribution["weighted_population"].sum()
 
     return distribution
-
 
 def compare_weighted_distributions(enoe, od, columns):
     comparisons = []
@@ -45,7 +43,6 @@ def compare_weighted_distributions(enoe, od, columns):
         comparisons.append(comparison[["variable", "category", "enoe_population", "od_population", "enoe_share", "od_share", "difference_pp"]])
 
     return pd.concat(comparisons, ignore_index=True)
-
 
 def calculate_weighted_informality_rate(enoe):
     valid = enoe["informal"].notna() & enoe["survey_weight"].notna()
@@ -70,7 +67,6 @@ def calculate_weighted_informality_rate(enoe):
 
     return benchmark
 
-
 def calculate_informality_by_variable(enoe, column):
     valid = enoe["informal"].notna() & enoe["survey_weight"].notna()
     enoe_valid = enoe.loc[valid].copy()
@@ -80,7 +76,6 @@ def calculate_informality_by_variable(enoe, column):
     informality["informality_rate"] = informality["weighted_informal_population"] / informality["weighted_population"]
 
     return informality
-
 
 def calculate_informality_profiles(enoe, columns):
     profiles = []
@@ -92,7 +87,6 @@ def calculate_informality_profiles(enoe, columns):
         profiles.append(profile[["variable", "category", "sample_workers", "weighted_population", "weighted_informal_population", "informality_rate"]])
 
     return pd.concat(profiles, ignore_index=True)
-
 
 def calculate_missingness(dataframe, columns, weight_column, missing_label="no_especificado"):
     results = []
@@ -114,7 +108,6 @@ def calculate_missingness(dataframe, columns, weight_column, missing_label="no_e
         })
 
     return pd.DataFrame(results)
-
 
 def compare_known_sector_distributions(enoe, od):
     enoe_known = enoe[~enoe["sector_desconocido"]].copy()

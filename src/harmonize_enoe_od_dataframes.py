@@ -7,8 +7,6 @@ NO_ESPECIFICADO = "no_especificado"
 AGE_BINS = [0, 3, 5, 6, 8, 12, 15, 18, 25, 50, 60, 65, np.inf]
 AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_49", "50_59", "60_64", "65_y_mas"]
 
-
-
 # DATA TYPES
 def prepare_enoe_data_types(enoe):
     enoe = enoe.copy()
@@ -29,7 +27,6 @@ def prepare_od_data_types(od):
 
     return od
 
-
 # GENDER
 def harmonize_enoe_gender(enoe):
     enoe = enoe.copy()
@@ -42,7 +39,6 @@ def harmonize_od_gender(od):
     od["genero"] = od["Sexo de nacimiento"].map({"Hombres": "H", "Mujeres": "F"}).fillna(NO_ESPECIFICADO)
 
     return od
-
 
 # OCCUPATION
 def harmonize_enoe_occupation(enoe):
@@ -75,7 +71,6 @@ def harmonize_od_occupation(od):
 
     return od
 
-
 # AGE
 def harmonize_enoe_age(enoe):
     enoe = enoe.copy()
@@ -90,7 +85,6 @@ def harmonize_od_age(od):
     od["edad_cat"] = pd.cut(od["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return od
-
 
 # EDUCATION
 def harmonize_enoe_education(enoe):
@@ -131,7 +125,6 @@ def harmonize_od_education(od):
     od["escolaridad"] = od["Escolaridad"].map(education_mapping).fillna(NO_ESPECIFICADO)
 
     return od
-
 
 # MUNICIPALITY
 def harmonize_enoe_municipality(enoe):
@@ -200,7 +193,6 @@ def harmonize_od_marital_status(od):
 
     return od
 
-
 # HOUSEHOLD RELATIONSHIP
 def harmonize_enoe_relationship(enoe):
     enoe = enoe.copy()
@@ -233,7 +225,6 @@ def harmonize_od_relationship(od):
 
     return od
 
-
 # HOUSEHOLD SIZE
 def harmonize_enoe_household_size(enoe):
     enoe = enoe.copy()
@@ -250,7 +241,6 @@ def harmonize_od_household_size(od):
     od["tamano_viv_num"] = pd.to_numeric(od["tamano_viv_cat"].replace({"10_y_mas": "10"}), errors="coerce").astype("Int64")
 
     return od
-
 
 # ECONOMIC SECTOR
 def harmonize_enoe_sector(enoe):
@@ -297,13 +287,11 @@ def harmonize_od_sector(od):
 
     return od
 
-
 def generate_enoe_informal_label(enoe):
     enoe = enoe.copy()
     enoe["informal"] = enoe["emp_ppal"].map({1: 1, 2: 0}).astype("Int64")
 
     return enoe
-
 
 # COMPLETE HARMONIZATION
 def harmonize_enoe_dataframe(enoe):
@@ -320,7 +308,6 @@ def harmonize_enoe_dataframe(enoe):
     enoe = generate_enoe_informal_label(enoe)
 
     return enoe
-
 
 def harmonize_od_dataframe(od):
     od = prepare_od_data_types(od)

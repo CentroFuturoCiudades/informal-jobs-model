@@ -16,7 +16,6 @@ SECTOR_CLASSES = ["comercio", "gobierno_otro_agricultura", "manufactura_construc
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "Ocupación:", "Durante la semana pasada trabajó:", "Centralidad"]
 OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "Ocupación:", "Durante la semana pasada trabajó:", "Centralidad"]
 
-
 # Diagnostics
 def compare_sector_known_unknown_profiles(od, columns):
     known_sector = od[~od["sector_desconocido"]].copy()
@@ -41,7 +40,6 @@ def compare_sector_known_unknown_profiles(od, columns):
 
     return pd.concat(comparisons, ignore_index=True)
 
-
 def calculate_od_sector_feature_missingness(od, sector_features=OD_SECTOR_FEATURES):
     known_sector = od[~od["sector_desconocido"]].copy()
     unknown_sector = od[od["sector_desconocido"]].copy()
@@ -63,8 +61,6 @@ def calculate_od_sector_feature_missingness(od, sector_features=OD_SECTOR_FEATUR
 
     return pd.DataFrame(results)
 
-
-
 # Train-test split
 def split_od_sector_known_data(od, n_splits=5, test_fold=0, random_state=42):
     known_sector = od[~od["sector_desconocido"]].copy()
@@ -73,7 +69,6 @@ def split_od_sector_known_data(od, n_splits=5, test_fold=0, random_state=42):
 
     y = known_sector["sector"].copy()
     groups = known_sector["Folio Vivienda"].astype("string")
-
     cross_validation = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     splits = list(cross_validation.split(known_sector, y, groups=groups))
     train_index, test_index = splits[test_fold]
@@ -83,14 +78,11 @@ def split_od_sector_known_data(od, n_splits=5, test_fold=0, random_state=42):
 
     return training_data, test_data
 
-
-
 # Feature preparation
 def normalize_sample_weights(sample_weights):
     sample_weights = sample_weights.astype(float)
 
     return sample_weights / sample_weights.mean()
-
 
 def normalize_predicted_probabilities(probabilities, tolerance=1e-8):
     probabilities = np.asarray(probabilities, dtype=float)
@@ -107,12 +99,10 @@ def normalize_predicted_probabilities(probabilities, tolerance=1e-8):
 
     return probabilities / probability_sums
 
-
 def identify_missing_category(series):
     text = series.astype("string").str.strip().str.lower()
 
     return series.isna() | text.eq("").fillna(False) | text.eq("no_especificado").fillna(False)
-
 
 def prepare_sector_features(dataframe, sector_features):
     X = dataframe[sector_features].copy()
@@ -128,7 +118,6 @@ def prepare_sector_features(dataframe, sector_features):
 
     return X
 
-
 def prepare_od_probabilistic_sector_training_data(od, sector_features=OD_SECTOR_FEATURES):
     training_data = od[~od["sector_desconocido"]].copy()
     training_data = training_data[training_data["sector"].isin(SECTOR_CLASSES)].copy()
@@ -140,8 +129,6 @@ def prepare_od_probabilistic_sector_training_data(od, sector_features=OD_SECTOR_
     groups = training_data["Folio Vivienda"].astype("string").reset_index(drop=True)
 
     return X, y, sample_weights, groups, training_data
-
-
 
 # Models
 def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random_state=42):
@@ -183,8 +170,6 @@ def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random
     }
 
     return models
-
-
 
 # Weighted cross-validation and tuning
 def tune_probabilistic_sector_models(X, y, sample_weights, groups, sector_features=OD_SECTOR_FEATURES, cv_splits=5, random_state=42):
@@ -256,14 +241,11 @@ def tune_probabilistic_sector_models(X, y, sample_weights, groups, sector_featur
 
     return model_summary, best_models
 
-
 def get_best_probabilistic_sector_model(model_summary, best_models):
     best_model_name = model_summary.iloc[0]["model"]
     best_model = best_models[best_model_name]
 
     return best_model_name, best_model
-
-
 
 # Test evaluation
 def evaluate_probabilistic_sector_model(model, validation_data, sector_features=OD_SECTOR_FEATURES):
@@ -323,8 +305,6 @@ def evaluate_probabilistic_sector_model(model, validation_data, sector_features=
     distribution_comparison["probabilistic_difference_pp"] = (distribution_comparison["probabilistic_predicted_share"] - distribution_comparison["observed_share"]) * 100
 
     return metrics, class_metrics, confusion, distribution_comparison
-
-
 
 # Final model
 def refit_probabilistic_sector_model(model, od, sector_features=OD_SECTOR_FEATURES):
