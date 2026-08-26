@@ -17,8 +17,6 @@ INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "munic
 INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 ENOE_HOUSEHOLD_COLUMNS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel", "n_hog", "h_mud"]
 
-
-
 # General helpers
 def identify_missing_category(series):
     text = series.astype("string").str.strip().str.lower()
@@ -69,8 +67,6 @@ def predict_informal_probability(model, X):
 
     return probabilities[:, informal_index[0]], probabilities
 
-
-
 # Geography and diagnostics
 def select_common_informality_population(enoe, od):
     excluded_municipalities = {"otro", "no_especificado"}
@@ -111,7 +107,6 @@ def compare_informality_feature_missingness(enoe, od, columns):
 
     return pd.DataFrame(results)
 
-
 def calculate_enoe_informality_benchmark(enoe):
     sample_weights = enoe["survey_weight"].astype(float)
     informal = enoe["informal"].astype(float)
@@ -130,8 +125,6 @@ def calculate_enoe_informality_benchmark(enoe):
 
     return benchmark
 
-
-
 # Train-test split
 def split_enoe_informality_data(enoe, n_splits=5, test_fold=0, random_state=42):
     enoe = enoe.reset_index(drop=True)
@@ -148,7 +141,6 @@ def split_enoe_informality_data(enoe, n_splits=5, test_fold=0, random_state=42):
 
     return training_data, test_data
 
-
 # Training data
 def prepare_enoe_informality_training_data(enoe, features=INFORMALITY_FEATURES):
     training_data = enoe[enoe["informal"].notna()].copy()
@@ -161,8 +153,6 @@ def prepare_enoe_informality_training_data(enoe, features=INFORMALITY_FEATURES):
     groups = training_data[ENOE_HOUSEHOLD_COLUMNS].astype("string").agg("_".join, axis=1).reset_index(drop=True)
 
     return X, y, sample_weights, groups, training_data
-
-
 
 # Models
 def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
