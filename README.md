@@ -1,8 +1,10 @@
+<div align="center">
+
 # Classification Model for Formal and Informal Jobs
 
-## 1. Overview
-
 This repository estimates whether workers in the Guadalajara Metropolitan Area Origin-Destination Survey are formally or informally employed using machine learning models trained on data from the ENOE. The process harmonizes variables between the two surveys, reconstructs the missing economic sector in the OD survey, and calculates the probability of informality for each worker.
+
+</div>
 
 ## 2. Data
 
