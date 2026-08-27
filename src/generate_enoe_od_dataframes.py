@@ -16,8 +16,11 @@ ENOE_STATE_CODE = 14  # Jalisco
 ENOE_DWELLING_KEYS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel"]
 ENOE_HOUSEHOLD_KEYS = ENOE_DWELLING_KEYS + ["n_hog", "h_mud"]
 ENOE_PERSON_KEYS = ENOE_HOUSEHOLD_KEYS + ["n_ren"]
-ENOE_RENAMES = {"fac_tri": "survey_weight", "est": "survey_stratum", "upm": "survey_psu"}
-ENOE_OUTPUT_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "survey_weight", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"]
+# est_d_tri is the sampling-design stratum (18 strata in Jalisco 2023t1); est is INEGI's socio-economic stratum (4 levels).
+ENOE_RENAMES = {"fac_tri": "survey_weight", "est_d_tri": "survey_stratum", "upm": "survey_psu", "est": "estrato_socioeconomico"}
+ENOE_CODE_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "estrato_socioeconomico", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"]
+ENOE_WEIGHT_COLUMNS = ["survey_weight"]
+ENOE_OUTPUT_COLUMNS = ENOE_CODE_COLUMNS[:len(ENOE_PERSON_KEYS) + 3] + ENOE_WEIGHT_COLUMNS + ENOE_CODE_COLUMNS[len(ENOE_PERSON_KEYS) + 3:]
 ENOE_EMPLOYMENT_FILTERS = ("clase2", "p1")
 # Analytical universe for the "clase2" filter: definitive interview, habitual/new residents, age 12+ (INEGI uses 15+;
 # 12 keeps the working 12-14 year olds that the OD survey also records). The upper bound 98 follows INEGI's own
@@ -84,9 +87,13 @@ def generate_enoe_dataframe(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, empl
     enoe = enoe.merge(dwelling_size, on=ENOE_DWELLING_KEYS, how="left", validate="many_to_one")
     assert enoe["dwelling_size"].notna().all(), "Every employed person must belong to a dwelling in SDEM"
     enoe = enoe.rename(columns=ENOE_RENAMES)[ENOE_OUTPUT_COLUMNS].copy()
-    # mxcensus returns raw INEGI codes as strings (blanks for missing); stage 2 maps integer codes.
-    for column in ENOE_OUTPUT_COLUMNS:
+    # mxcensus returns raw INEGI codes as strings (blanks for missing); stage 2 maps integer codes. Weights stay float
+    # (fac_tri is integral in 2023t1 but need not be in other quarters).
+    for column in ENOE_CODE_COLUMNS:
         enoe[column] = pd.to_numeric(enoe[column], errors="coerce").astype("Int64")
+    for column in ENOE_WEIGHT_COLUMNS:
+        enoe[column] = pd.to_numeric(enoe[column], errors="coerce").astype("float64")
+    assert enoe[ENOE_WEIGHT_COLUMNS].notna().all().all(), "ENOE survey weights contain missing values"
 
     return enoe.reset_index(drop=True)
 

@@ -13,7 +13,7 @@ Both surveys are loaded through the project's data packages, which download and 
 - **ENOE** (Encuesta Nacional de Ocupación y Empleo, INEGI) via [`mxcensus`](https://github.com/CentroFuturoCiudades/mxcensus). `mxcensus.load_enoe_persons(period="2023t1", ent=14)` returns the sociodemographic roster (SDEM) joined with the two occupation questionnaires (COE1, COE2) for the first quarter of 2023, restricted to Jalisco. The pipeline keeps (`src.ENOE_OUTPUT_COLUMNS`):
     - `tipo`, `mes_cal`, `cd_a`, `ent`, `con`, `v_sel`, `n_hog`, `h_mud`, `n_ren`: dwelling, household and person identifiers
     - `mun`: municipality
-    - `survey_weight` (`fac_tri`), `survey_stratum` (`est`), `survey_psu` (`upm`): survey design variables
+    - `survey_weight` (`fac_tri`), `survey_stratum` (`est_d_tri`, sampling-design stratum), `survey_psu` (`upm`): survey design variables; `estrato_socioeconomico` (`est`) is INEGI's socio-economic stratum
     - `sex`: gender
     - `eda`: age
     - `cs_p13_1`: educational level

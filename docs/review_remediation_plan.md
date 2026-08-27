@@ -68,18 +68,20 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Verify:** |ENOE − OD| share for the top category < 2 pp; `tamano_viv_num.max() == 10` in both.
 - **Done (2026-08-27):** ENOE dwelling size counts `c_res ∈ {1,3}` only (226 workers' dwellings changed); `HOUSEHOLD_SIZE_LABELS = 1…6, 7_y_mas` and `HOUSEHOLD_SIZE_CAP = 10` in `src/common.py`, applied identically to both surveys. Resulting weighted shares of workers: `7_y_mas` ENOE 12.2% vs OD 5.6% (was 8+: 8.4% vs 1.6%); categories 1–6 within 6 pp.
 
-### 1.8 `survey_stratum` is the socio-economic stratum
+### 1.8 `survey_stratum` is the socio-economic stratum ✅ done
 - **Where:** `ENOE_RENAMES` (`generate:18`).
 - **What/why:** `est` has 4 values (INEGI estrato socioeconómico); the design stratum is `est_d_tri` (18 values). Anyone using `survey_stratum` + `survey_psu` for design-based variance gets wrong results.
 - **Fix:** `est_d_tri → survey_stratum`, keep `est → estrato_socioeconomico`. Update README §1.
 - **Verify:** `enoe_workers.survey_stratum.nunique() == 18`.
+- **Done (2026-08-27):** `est_d_tri → survey_stratum`, `est → estrato_socioeconomico` (new column, 23 columns in `enoe_workers`).
 
-### 1.9 Dtype casting: weights as float, codes as Int64, once
+### 1.9 Dtype casting: weights as float, codes as Int64, once ✅ done
 - **Where:** `generate:75-76` (blanket `Int64` over all 22 columns incl. `survey_weight`), duplicated in `harmonize:11-17`.
 - **What/why:** `astype("Int64")` on a fractional float raises `TypeError`; it works only because 2023t1 `fac_tri` is integral.
 - **Fix:** `ENOE_CODE_COLUMNS → Int64`, `ENOE_WEIGHT_COLUMNS → float64`; delete `prepare_enoe_data_types`' re-cast (keep a dtype assertion instead). Assert no NA in `expansion_factor`/`survey_weight` inside `normalize_sample_weights`.
+- **Done (2026-08-27):** as described; `survey_weight` is float64 in the parquet from now on.
 
-### 1.10 Missing ENOE municipality must be `no_especificado`, not `otro`
+### 1.10 Missing ENOE municipality must be `no_especificado`, not `otro` ✅ done
 - **Where:** `harmonize:144` (`.fillna("otro")`).
 - **Fix:** map NA → `NO_ESPECIFICADO`; only codes present but outside the AMG → `otro`. INEGI masks municipality as 999 in some quarters.
 

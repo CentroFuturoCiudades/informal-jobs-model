@@ -32,10 +32,12 @@ def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
 
 # DATA TYPES
 def prepare_enoe_data_types(enoe):
+    """Stage 1 already delivers Int64 codes and float weights; only verify, so the cast lives in one place."""
     enoe = enoe.copy()
-    numeric_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_weight", "survey_stratum", "survey_psu"]
-    for column in numeric_columns:
-        enoe[column] = pd.to_numeric(enoe[column], errors="coerce").astype("Int64")
+    code_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_stratum", "survey_psu"]
+    not_integer = [column for column in code_columns if not pd.api.types.is_integer_dtype(enoe[column])]
+    assert not not_integer, f"ENOE code columns must be integer-typed (stage 1 casts them): {not_integer}"
+    assert pd.api.types.is_float_dtype(enoe["survey_weight"]) and enoe["survey_weight"].notna().all(), "survey_weight must be float without missing values"
 
     return enoe
 
@@ -173,7 +175,8 @@ def harmonize_enoe_municipality(enoe):
         44: "ixtlahuacan_membrillos",
         124: "zapotlanejo"
     }
-    enoe["municipio"] = enoe["mun"].map(municipality_mapping).fillna("otro")
+    # Codes outside the metro area are "otro" (Jalisco outside the AMG); a missing/masked code is not.
+    enoe["municipio"] = enoe["mun"].map(municipality_mapping).fillna("otro").where(enoe["mun"].notna(), NO_ESPECIFICADO)
 
     return enoe
 
@@ -191,7 +194,7 @@ def harmonize_od_municipality(od):
         "Zapotlanejo": "zapotlanejo"
     }
     assert_mapping_covers(od["municipio_raw"], municipality_mapping)
-    od["municipio"] = od["municipio_raw"].map(municipality_mapping).fillna("otro")
+    od["municipio"] = od["municipio_raw"].map(municipality_mapping).fillna("otro").where(od["municipio_raw"].notna(), NO_ESPECIFICADO)
 
     return od
 
