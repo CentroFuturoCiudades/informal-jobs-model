@@ -73,7 +73,7 @@ def harmonize_enoe_occupation(enoe):
         1: "trabajador",
         2: "trabajador",
         3: "independiente",
-        4: "otro"
+        4: "sin_pago"  # trabajadores sin pago (unpaid family workers); ENOE-only level, the OD has no counterpart
     }
     assert_mapping_covers(enoe["pos_ocu"], occupation_mapping)
     enoe["ocupacion"] = enoe["pos_ocu"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
@@ -89,10 +89,12 @@ def harmonize_od_occupation(od):
         "Profesor": "trabajador",
         "Patrón o empresario": "trabajador",
         "Trabajador independiente": "independiente",
-        "Hogar": "otro",
-        "Estudiante": "otro",
-        "Jubilado o pensionado": "otro",
-        "Desempleado": "otro"
+        # Respondents who report working last week but give a non-working status: they do work (see
+        # docs/review_remediation_plan.md 1.3) but their position in the occupation is unknown.
+        "Hogar": NO_ESPECIFICADO,
+        "Estudiante": NO_ESPECIFICADO,
+        "Jubilado o pensionado": NO_ESPECIFICADO,
+        "Desempleado": NO_ESPECIFICADO
     }
     assert_mapping_covers(od["ocupacion_raw"], occupation_mapping)
     od["ocupacion"] = od["ocupacion_raw"].map(occupation_mapping).fillna(NO_ESPECIFICADO)

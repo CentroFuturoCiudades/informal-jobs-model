@@ -36,13 +36,14 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Verify:** `enoe_harmonized.edad_num.max() <= 97`; two rows in `edad_cat == no_especificado`.
 - **Done (2026-08-27):** `edad_num = eda.where(eda < 98)`; 2 workers now have `edad_cat = no_especificado`; `edad_num.max() = 97`.
 
-### 1.3 Who counts as an OD worker — 194 self-reported non-workers **[D]**
+### 1.3 Who counts as an OD worker — 194 self-reported non-workers ✅ done
 - **Where:** `generate_od_dataframe` (`generate:86`) filter on `trabajo_semana_pasada`.
 - **What/why:** 194 people report working last week but `ocupacion_raw ∈ {Desempleado 21, Hogar 90, Estudiante 61, Jubilado o pensionado 22}`. All 194 lack `giro_empresa`, so they enter sector imputation with occupation levels the sector model never saw (see 1.5), then receive an informality probability. Two internally inconsistent answers; no way to know which is right.
 - **Options:** (a) exclude them from the worker set (recommended: 0.7% of rows; document as an inconsistency exclusion); (b) keep them and map `ocupacion → no_especificado` so they are handled by the missing-category path. **User decides.**
 - **Verify:** `od_workers` row count 26,913 → 26,719 under (a); no `ocupacion_raw` level outside the six employed categories.
+- **Decision (2026-08-27):** keep all 194. Trip records show they are not typical workers (20% made a work trip on the survey day vs 88% of other workers; 40% show any work-related mobility incl. weekend work destinations) but ENOE analogues (working students 63%, 12–17 y 97%, 65+ 72%, <15 h 94% informal) say those who do work are very likely informal, so excluding them would drop a real informal segment. Implemented as `ocupacion = no_especificado` for Hogar/Estudiante/Jubilado/Desempleado in `harmonize_od_occupation`; the count is printed in notebook 02. A part-time/schedule feature from ENOE `hrsocup` was considered and rejected: OD's self-reported "Medio tiempo" (6%) matches no hours cutoff (ENOE <35 h = 21%, <25 h = 11%, <15 h = 4%), and half of the 194 report full-time anyway. Optional Phase 2 experiment: 3-level `jornada` (absent / <25 h ≈ Medio tiempo / full-time) in the informality model only.
 
-### 1.4 `ocupacion == "otro"` means opposite things in the two surveys
+### 1.4 `ocupacion == "otro"` means opposite things in the two surveys ✅ done
 - **Where:** `harmonize:46-52` (ENOE) and `:58-70` (OD).
 - **What/why:** ENOE `pos_ocu == 4` = *trabajadores sin pago* (unpaid family workers, heavily informal). OD `otro` = home-makers/students/retirees/unemployed. Same level, disjoint concept, in a feature of the informality model: the model learns "otro ⇒ informal" from unpaid workers and applies it to retirees.
 - **Fix:** ENOE `4 → "sin_pago"`. OD: after 1.3(a) the OD `otro` group is empty and the four labels map to `no_especificado`; under 1.3(b) map them to `"otra_condicion"` so they stay a distinct, honest level. Update README §4.2 category list and notebook 02 markdown.
