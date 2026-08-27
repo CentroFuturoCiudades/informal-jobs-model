@@ -7,5 +7,6 @@ __pycache__/
 .ipynb_checkpoints/
 .venv/
 
-# Raw survey data (too large / not redistributable)
-data/enoe/
+
+# Pre-migration reference outputs (local only)
+outputs_baseline/

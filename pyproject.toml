@@ -1,8 +1,10 @@
 [project]
 name = "informal-jobs-model"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
+    "eodgdl",
+    "mxcensus",
     "ipykernel>=7.3.0",
     "joblib>=1.5.3",
     "jupyterlab>=4.6.3",
@@ -13,3 +15,7 @@ dependencies = [
     "pyarrow>=25.0.1",
     "scikit-learn>=1.9.0",
 ]
+
+[tool.uv.sources]
+mxcensus = { git = "https://github.com/CentroFuturoCiudades/mxcensus.git", rev = "v0.2.0" }
+eodgdl = { git = "https://github.com/CentroFuturoCiudades/eodgdl.git", rev = "v0.1.0" }

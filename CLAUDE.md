@@ -8,7 +8,7 @@ Research pipeline that estimates formal/informal employment for workers in the G
 
 ## Running the pipeline
 
-Dependencies are managed with [uv](https://docs.astral.sh/uv/) (`pyproject.toml` + `uv.lock`, Python ≥3.11). There is no test suite.
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) (`pyproject.toml` + `uv.lock`, Python ≥3.13). Survey data comes from two of the user's packages pinned as git sources: `mxcensus` (ENOE) and `eodgdl` (OD survey). There is no test suite.
 
 ```bash
 uv sync                      # create .venv with locked deps
@@ -22,13 +22,13 @@ The pipeline is five Jupyter notebooks run in order; each reads the previous sta
 
 | Stage | Notebook | Reads | Writes |
 |---|---|---|---|
-| 1 | `01_generate_enoe_od_base_dataframes` | `data/enoe/*.csv`, `data/od/*.csv` | `enoe_workers`, `od_workers` |
+| 1 | `01_generate_enoe_od_base_dataframes` | `mxcensus` (ENOE `2023t1`, Jalisco), `eodgdl` (OD `hab` ⋈ `viv`) | `enoe_workers`, `od_workers` |
 | 2 | `02_harmonize_enoe_od` | stage 1 | `enoe_harmonized`, `od_harmonized` |
 | 3 | `03_diagnose_enoe_od_dataframes` | stage 2 | figures only |
 | 4 | `04_impute_economic_sector` | `od_harmonized` | `od_sector_imputed`, `models/economic_sector_hybrid_model.joblib` |
 | 5 | `05_informality_model` | `enoe_harmonized`, `od_sector_imputed` | `od_informality_imputed`, `models/informality_hybrid_model.joblib` |
 
-Notebooks compute `ROOT` (the repo root) from cwd and anchor every `src` import and `data/`/`outputs/` path to it, so they run correctly from either the repo root or `notebooks/` (nbconvert executes with cwd set to the notebook's directory). Keep new I/O paths anchored to `ROOT` too.
+Notebooks compute `ROOT` (the repo root) from cwd and anchor every `src` import and `outputs/` path to it, so they run correctly from either the repo root or `notebooks/` (nbconvert executes with cwd set to the notebook's directory). Keep new I/O paths anchored to `ROOT` too.
 
 Headless execution of one stage:
 
@@ -36,7 +36,9 @@ Headless execution of one stage:
 uv run jupyter nbconvert --to notebook --execute notebooks/04_impute_economic_sector.ipynb --inplace
 ```
 
-Raw survey CSVs in `data/` are latin1-encoded and not all are committed (`data/enoe/` is gitignored). Stages 4–5 do grid-searched CV over three model families and are slow; `outputs/` already holds the results of a full run, so you can start from any stage.
+There is no `data/` directory: the packages download and cache the raw tables on first use (`~/Library/Caches/mxcensus`, `~/Library/Caches/eodgdl`; override with `MXCENSUS_CACHE_DIR`, `EODGDL_CACHE_DIR`, or point `EODGDL_DATA_DIR` at local IMEPLAN files). Stages 4–5 do grid-searched CV over three model families and are slow; `outputs/` already holds the results of a full run, so you can start from any stage.
+
+`src/compare_outputs.py` compares a run against a reference copy of `outputs/` (row counts, key overlap, weighted totals, harmonized distributions, informality rates): `uv run python -m src.compare_outputs outputs_baseline outputs [--stage 1|2|3|all]`. `outputs_baseline/` (gitignored) holds the pre-migration run of 2026-08-26; notebook 01 prints the stage-1 comparison automatically when it exists. `generate_enoe_dataframe(employment_filter="p1"|"clase2")` switches the ENOE employment definition (`p1` = worked ≥1h last week, exact parity with the baseline; `clase2` = INEGI employed on the canonical universe, +148 workers, same weighted informality rate).
 
 ## Code structure
 
@@ -46,8 +48,8 @@ One module per stage, named to match the notebook. The notebooks hold orchestrat
 
 ### Key conventions that span files
 
-- **Harmonized column names are Spanish and shared by both surveys**: `genero`, `ocupacion`, `edad_num`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`, `tamano_viv_cat`, `sector`. Missing/unknown categories use the literal string `"no_especificado"` (`NO_ESPECIFICADO` in `harmonize_enoe_od_dataframes.py`); `identify_missing_category` in the model modules keys off it. Survey weights are `survey_weight` (ENOE, from `fac_tri`) and `expansion_factor` (OD, from `Ponderador`).
-- **OD retains its raw Spanish question-text column names** (e.g. `"Ocupación:"`, `"Durante la semana pasada trabajó:"`, `"Centralidad"`), and the sector model uses some of them directly as features (`OD_SECTOR_FEATURES`). Don't rename them.
+- **Harmonized column names are Spanish and shared by both surveys**: `genero`, `ocupacion`, `edad_num`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`, `tamano_viv_cat`, `sector`. Missing/unknown categories use the literal string `"no_especificado"` (`NO_ESPECIFICADO` in `harmonize_enoe_od_dataframes.py`); `identify_missing_category` in the model modules keys off it. Survey weights are `survey_weight` (ENOE, from `fac_tri`) and `expansion_factor` (OD, from the person-level `ponderador`).
+- **OD uses `eodgdl`'s snake_case column names.** Raw OD columns whose names collide with the harmonized attributes (`ocupacion`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`) get a `_raw` suffix at stage 1 (`OD_RAW_COLUMN_RENAMES` in `generate_enoe_od_dataframes.py`); the unsuffixed name is always the harmonized one. The sector model uses raw `ocupacion_raw`, `trabajo_semana_pasada`, `centralidad` directly as features (`OD_SECTOR_FEATURES`), and `folio_vivienda` is the CV group key. ENOE arrives from `mxcensus` as string codes and is cast to `Int64` in stage 1 because the stage-2 mapping dicts key on integers.
 - **Four sector classes** are hard-coded identically as `SECTOR_CLASSES` in both `impute_economic_sector.py` and `informality_model.py`; the informality stage validates that `prob_sector_*` columns sum to 1 per row.
 - **Hybrid "with/without education" models.** Both modelling stages train two specifications (`*_FEATURES` vs `*_ROBUST_FEATURES`, the latter dropping `escolaridad`) and dispatch per row on whether education is missing. The `.joblib` files are dicts with keys `model_with_education`, `model_without_education`, `features_with_education`, `features_without_education`, each model being an sklearn `Pipeline` whose final step is named `"classifier"`.
 - **Informality is probabilistic and marginalizes over sector.** `predict_od_informality` computes `P(informal | sector=s)` for every `s`, multiplies by `prob_sector_s`, and sums to get `prob_informal`. `informal_predicted` (0.5 threshold) is a convenience; `prob_informal` is the primary output.

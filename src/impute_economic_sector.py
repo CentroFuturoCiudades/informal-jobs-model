@@ -13,8 +13,8 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 SECTOR_CLASSES = ["comercio", "gobierno_otro_agricultura", "manufactura_construccion", "servicios_transporte"]
-OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "Ocupación:", "Durante la semana pasada trabajó:", "Centralidad"]
-OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "Ocupación:", "Durante la semana pasada trabajó:", "Centralidad"]
+OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
+OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
 
 # Diagnostics
 def compare_sector_known_unknown_profiles(od, columns):
@@ -68,7 +68,7 @@ def split_od_sector_known_data(od, n_splits=5, test_fold=0, random_state=42):
     known_sector = known_sector.reset_index(drop=True)
 
     y = known_sector["sector"].copy()
-    groups = known_sector["Folio Vivienda"].astype("string")
+    groups = known_sector["folio_vivienda"].astype("string")
     cross_validation = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     splits = list(cross_validation.split(known_sector, y, groups=groups))
     train_index, test_index = splits[test_fold]
@@ -126,7 +126,7 @@ def prepare_od_probabilistic_sector_training_data(od, sector_features=OD_SECTOR_
     X = prepare_sector_features(training_data, sector_features)
     y = training_data["sector"].reset_index(drop=True)
     sample_weights = normalize_sample_weights(training_data["expansion_factor"]).reset_index(drop=True)
-    groups = training_data["Folio Vivienda"].astype("string").reset_index(drop=True)
+    groups = training_data["folio_vivienda"].astype("string").reset_index(drop=True)
 
     return X, y, sample_weights, groups, training_data
 

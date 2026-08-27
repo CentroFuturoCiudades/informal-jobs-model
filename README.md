@@ -8,58 +8,50 @@ This repository estimates whether workers in the Guadalajara Metropolitan Area O
 
 ## 1. Data
 
-The sources of information used throughout the methodology were as follows:
+Both surveys are loaded through the project's data packages, which download and cache the raw tables on first use, so no survey files need to be stored in this repository:
 
-- **ENOE**: provides sociodemographic and employment information on employed individuals. Among the main columns are:
-    - `ent`: state
+- **ENOE** (Encuesta Nacional de Ocupación y Empleo, INEGI) via [`mxcensus`](https://github.com/CentroFuturoCiudades/mxcensus). `mxcensus.load_enoe_persons(period="2023t1", ent=14)` returns the sociodemographic roster (SDEM) joined with the two occupation questionnaires (COE1, COE2) for the first quarter of 2023, restricted to Jalisco. The pipeline keeps (`src.ENOE_OUTPUT_COLUMNS`):
+    - `tipo`, `mes_cal`, `cd_a`, `ent`, `con`, `v_sel`, `n_hog`, `h_mud`, `n_ren`: dwelling, household and person identifiers
     - `mun`: municipality
-    - `loc`: locality
-    - `ageb`: basic geostatistical area.
+    - `survey_weight` (`fac_tri`), `survey_stratum` (`est`), `survey_psu` (`upm`): survey design variables
     - `sex`: gender
     - `eda`: age
-    - `niv_ins`: educational level
-    - `anios_esc`: years of schooling
+    - `cs_p13_1`: educational level
     - `e_con`: marital status
-    - `ur`: type of locality, urban or rural.
-    - `clase1`: economic activity status.
-    - `pos_ocu`: position in the occupation.
-    - `emp_ppal`: characteristics of the main job.
-    - `ingocup`: income from work.
-    - `hrsocup`: hours worked.
-    - `tue1`: size of the economic unit.
-    - `formal`: formal or informal employment status, used as a target variable for training the models.
+    - `par_c`: relationship to the head of household
+    - `pos_ocu`: position in the occupation
+    - `scian`: economic sector (SCIAN grouping)
+    - `emp_ppal`: formal or informal employment status, used as the target variable for training the models
+    - `dwelling_size`: number of persons in the dwelling, counted over the full SDEM roster
 
-- **Origin-Destination Survey**: provides sociodemographic, employment, and mobility data on the population of the Guadalajara Metropolitan Area. The main columns include:
-    - `id_persona`: identifier of the survey respondent
-    - `id_hogar`: household identifier.
-    - `factor_expansion`: survey expansion factor
-    - `sexo`: gender
+- **Origin–Destination Survey** (IMEPLAN, Guadalajara Metropolitan Area, 2023) via [`eodgdl`](https://github.com/CentroFuturoCiudades/eodgdl). `eodgdl.load_eod()` returns dwellings (`viv`), persons (`hab`), trips and trip legs with snake_case column names. The pipeline joins persons with their dwelling attributes and keeps every person column; the ones used downstream are:
+    - `folio_vivienda`, `folio_habitante`: dwelling and person identifiers
+    - `expansion_factor` (`ponderador`): person-level survey expansion factor
+    - `sexo_nacimiento`: gender
     - `edad`: age
-    - `escolaridad`: educational level
-    - `ocupacion`: employment status or occupation
-    - `sector_actividad`: economic sector
-    - `ingreso`: individual or household income
-    - `municipio_origen`: municipality where the trip begins
-    - `municipio_destino`: destination municipality
-    - `zona_origen`: area of origin of the trip
-    - `zona_destino`: destination area of the trip
-    - `motivo_viaje`: main reason for the trip
-    - `modo_transporte`: mode of transportation used
-    - `tiempo_viaje`: duration of the trip
-    - `hora_inicio`: time the trip began
-    - `hora_fin`: time the trip ends
-    - `frecuencia_viaje`: frequency with which the trip is made
+    - `escolaridad_raw`: educational level
+    - `estado_civil_raw`: marital status
+    - `parentesco_raw`: relationship to the head of household
+    - `ocupacion_raw`: occupation / employment position
+    - `trabajo_semana_pasada`: employment status last week (used to select workers)
+    - `giro_empresa`: economic sector of the employer (missing for most workers)
+    - `municipio_raw`, `ageb`, `centralidad`: dwelling geography (from `viv`)
+    - `dwelling_size` (`personas_en_vivienda`): household size category
+
+    Raw OD columns whose `eodgdl` names coincide with the harmonized attributes created in stage 2 (`ocupacion`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`) carry a `_raw` suffix (`src.OD_RAW_COLUMN_RENAMES`); the unsuffixed name always refers to the harmonized attribute.
 
 This survey does not directly identify informal employment status; therefore, this variable must be estimated or assigned using information from the ENOE and the variables shared between both sources.
 
 The unit of analysis is the employed individuals or workers who appear in both data sources. The linkage is performed using available common variables, such as sex, age, educational level, municipality, employment status, and characteristics of employment or mobility.
 
-**Note:** The original files from both surveys are not necessarily included in this GitHub repository due to their size.
+**Data access.** Dependencies are pinned to package releases (`mxcensus` v0.2.0, `eodgdl` v0.1.0) in `pyproject.toml`. The packages cache their downloads under `~/Library/Caches/mxcensus` and `~/Library/Caches/eodgdl` (override with `MXCENSUS_CACHE_DIR`, `EODGDL_CACHE_DIR`); `EODGDL_DATA_DIR` points `eodgdl` at a local copy of the IMEPLAN files for offline use.
 
 ## 2. Methodology
 
 ### 2.1 Database structure
-In this step, we load the databases corresponding to the ENOE and the OD. We then filter the data to work exclusively with employed individuals and with observations corresponding to the area of interest (Jalisco). Additionally, for the ENOE, we calculate household size by counting the number of people associated with each household using their identifiers, while for the OD, this information is imported directly from the housing database.
+In this step, we load the ENOE and OD tables through `mxcensus` and `eodgdl`. We then filter the data to work exclusively with employed individuals and with observations corresponding to the area of interest (Jalisco). For the ENOE, employment can be defined in two ways (`employment_filter` argument of `src.generate_enoe_dataframe`): `"p1"`, persons who worked at least one hour in the reference week (COE1 `p1 == 1`, the default and the definition used in the original pipeline), or `"clase2"`, INEGI's employed population (`clase2 == 1`) on the canonical survey universe. Additionally, for the ENOE, we calculate household size by counting the number of people associated with each dwelling using their identifiers, while for the OD, this information is imported directly from the dwelling table.
+
+To validate changes to the data sources, `src/compare_outputs.py` compares the outputs of a run against a reference copy (`uv run python -m src.compare_outputs outputs_baseline outputs`).
 
 **Notebook**: `01_generate_enoe_od_base_dataframes.ipynb`
 **Module:** `generate_enoe_od_dataframes.py`
@@ -162,7 +154,7 @@ For informality prediction, the relevant harmonized worker attributes are primar
 - `tamano_viv_cat`
 - `sector`
 
-If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES`.
+If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels).
 
 All categorical variables should use the same categories established during the harmonization stage.
 

@@ -18,10 +18,10 @@ def prepare_enoe_data_types(enoe):
 
 def prepare_od_data_types(od):
     od = od.copy()
-    numeric_columns = ["Edad", "expansion_factor"]
+    numeric_columns = ["edad", "expansion_factor"]
     for column in numeric_columns:
         od[column] = pd.to_numeric(od[column], errors="coerce").astype("Int64")
-    text_columns = ["Sexo de nacimiento", "Ocupación:", "Escolaridad", "Municipio", "Estado civil", "Parentesco", "Giro de la empresa donde trabaja:", "dwelling_size"]
+    text_columns = ["sexo_nacimiento", "ocupacion_raw", "escolaridad_raw", "municipio_raw", "estado_civil_raw", "parentesco_raw", "giro_empresa", "dwelling_size"]
     for column in text_columns:
         od[column] = od[column].astype("string").str.strip()
 
@@ -36,7 +36,7 @@ def harmonize_enoe_gender(enoe):
 
 def harmonize_od_gender(od):
     od = od.copy()
-    od["genero"] = od["Sexo de nacimiento"].map({"Hombres": "H", "Mujeres": "F"}).fillna(NO_ESPECIFICADO)
+    od["genero"] = od["sexo_nacimiento"].map({"Hombres": "H", "Mujeres": "F"}).fillna(NO_ESPECIFICADO)
 
     return od
 
@@ -67,7 +67,7 @@ def harmonize_od_occupation(od):
         "Jubilado o pensionado": "otro",
         "Desempleado": "otro"
     }
-    od["ocupacion"] = od["Ocupación:"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
+    od["ocupacion"] = od["ocupacion_raw"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
 
     return od
 
@@ -81,7 +81,7 @@ def harmonize_enoe_age(enoe):
 
 def harmonize_od_age(od):
     od = od.copy()
-    od["edad_num"] = od["Edad"].copy()
+    od["edad_num"] = od["edad"].copy()
     od["edad_cat"] = pd.cut(od["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return od
@@ -122,7 +122,7 @@ def harmonize_od_education(od):
         "Maestría o doctorado": "postgrado",
         "No sabe": NO_ESPECIFICADO
     }
-    od["escolaridad"] = od["Escolaridad"].map(education_mapping).fillna(NO_ESPECIFICADO)
+    od["escolaridad"] = od["escolaridad_raw"].map(education_mapping).fillna(NO_ESPECIFICADO)
 
     return od
 
@@ -159,7 +159,7 @@ def harmonize_od_municipality(od):
         "Zapotlanejo": "zapotlanejo",
         "Tala": "tala"
     }
-    od["municipio"] = od["Municipio"].map(municipality_mapping).fillna("otro")
+    od["municipio"] = od["municipio_raw"].map(municipality_mapping).fillna("otro")
 
     return od
 
@@ -189,7 +189,7 @@ def harmonize_od_marital_status(od):
         "Separado": "separado",
         "Divorciado": "divorciado"
     }
-    od["estado_civil"] = od["Estado civil"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
+    od["estado_civil"] = od["estado_civil_raw"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
 
     return od
 
@@ -221,7 +221,7 @@ def harmonize_od_relationship(od):
         "Sin parentesco": "sin_parentesco"
     }
 
-    od["parentesco"] = od["Parentesco"].map(relationship_mapping).fillna(NO_ESPECIFICADO)
+    od["parentesco"] = od["parentesco_raw"].map(relationship_mapping).fillna(NO_ESPECIFICADO)
 
     return od
 
@@ -282,7 +282,7 @@ def harmonize_od_sector(od):
         "Industria": "manufactura_construccion",
         "Gobierno/sector público": "gobierno_otro_agricultura"
     }
-    od["sector"] = od["Giro de la empresa donde trabaja:"].map(sector_mapping).fillna(NO_ESPECIFICADO)
+    od["sector"] = od["giro_empresa"].map(sector_mapping).fillna(NO_ESPECIFICADO)
     od["sector_desconocido"] = od["sector"].eq(NO_ESPECIFICADO)
 
     return od
