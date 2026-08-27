@@ -15,7 +15,7 @@ def load_mapping(name):
         return yaml.safe_load(handle)
 
 
-from .common import AGE_LABELS, NO_ESPECIFICADO
+from .common import AGE_LABELS, HOUSEHOLD_SIZE_CAP, HOUSEHOLD_SIZE_LABELS, NO_ESPECIFICADO
 
 AGE_BINS = [0, 3, 5, 6, 8, 12, 15, 18, 25, 50, 60, 65, np.inf]
 
@@ -264,18 +264,17 @@ def harmonize_od_relationship(od):
 # HOUSEHOLD SIZE
 def harmonize_enoe_household_size(enoe):
     enoe = enoe.copy()
-    enoe["tamano_viv_num"] = enoe["dwelling_size"].copy()
-    enoe["tamano_viv_cat"] = pd.cut(enoe["tamano_viv_num"], bins=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, np.inf], labels=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10_y_mas"], right=False).astype("string").fillna(NO_ESPECIFICADO)
+    enoe["tamano_viv_num"] = enoe["dwelling_size"].clip(upper=HOUSEHOLD_SIZE_CAP)
+    enoe["tamano_viv_cat"] = pd.cut(enoe["tamano_viv_num"], bins=[1, 2, 3, 4, 5, 6, 7, np.inf], labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return enoe
 
 def harmonize_od_household_size(od):
     od = od.copy()
-    household_size = od["dwelling_size"].replace({"10 y +": "10_y_mas", "10 y más": "10_y_mas"})
-    valid_categories = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10_y_mas"]
-    assert_mapping_covers(household_size, valid_categories, name="dwelling_size")
-    od["tamano_viv_cat"] = household_size.where(household_size.isin(valid_categories), NO_ESPECIFICADO)
-    od["tamano_viv_num"] = pd.to_numeric(od["tamano_viv_cat"].replace({"10_y_mas": "10"}), errors="coerce").astype("Int64")
+    household_size = od["dwelling_size"].replace({"10 y +": "10", "10 y más": "10"})
+    assert_mapping_covers(household_size, [str(n) for n in range(1, 11)], name="dwelling_size")
+    od["tamano_viv_num"] = pd.to_numeric(household_size, errors="coerce").astype("Int64").clip(upper=HOUSEHOLD_SIZE_CAP)
+    od["tamano_viv_cat"] = pd.cut(od["tamano_viv_num"], bins=[1, 2, 3, 4, 5, 6, 7, np.inf], labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return od
 

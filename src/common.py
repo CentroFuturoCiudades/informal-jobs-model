@@ -8,6 +8,9 @@ AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_4
 # The nine municipalities of the Guadalajara Metropolitan Area as covered by the OD survey (eodgdl schema).
 AMG_MUNICIPALITIES = ["guadalajara", "zapopan", "tlaquepaque", "tlajomulco", "tonala", "el_salto", "juanacatlan", "ixtlahuacan_membrillos", "zapotlanejo"]
 NUMERIC_FEATURES = ["edad_num"]
+# Household size is collapsed at 7+: the ENOE roster count and the OD self-report diverge 5x above 8 persons.
+HOUSEHOLD_SIZE_LABELS = ["1", "2", "3", "4", "5", "6", "7_y_mas"]
+HOUSEHOLD_SIZE_CAP = 10  # tamano_viv_num is capped here in both surveys (the OD answer stops at "10 y +")
 
 
 def _eodgdl_levels(column):
@@ -32,7 +35,7 @@ def build_category_levels():
         "municipio": AMG_MUNICIPALITIES + ["otro"],
         "estado_civil": ["union_libre", "separado", "divorciado", "viudo", "casado", "soltero"],
         "parentesco": ["jefe_del_hogar", "conyuge", "hijo", "otro_parentesco", "sin_parentesco"],
-        "tamano_viv_cat": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10_y_mas"],
+        "tamano_viv_cat": HOUSEHOLD_SIZE_LABELS,
         "edad_cat": AGE_LABELS,
         "sector": SECTOR_CLASSES,
         # raw OD columns used directly by the sector model

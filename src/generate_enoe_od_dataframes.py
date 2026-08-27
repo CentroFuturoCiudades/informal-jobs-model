@@ -46,9 +46,11 @@ def assert_enoe_dwelling_key(frame, period):
         raise ValueError(f"ENOE period {period!r} resolves the dwelling key to {resolved}, but this pipeline expects {ENOE_DWELLING_KEYS}")
 
 def compute_enoe_dwelling_size(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE):
-    """Number of persons per dwelling, counted over the full SDEM roster (all ages, all residents)."""
+    """Number of persons per dwelling: every SDEM row of the dwelling (all ages, all households) that is a
+    habitual or new resident (``c_res`` 1 or 3); persons who moved out (``c_res == 2``) are not counted."""
     sdem = mxcensus.load_enoe(table="sdem", period=period, ent=state_code)
     assert_enoe_dwelling_key(sdem, period)
+    sdem = sdem[sdem["c_res"].isin(["1", "3"])]
     dwelling_size = sdem.groupby(ENOE_DWELLING_KEYS).size().rename("dwelling_size").reset_index()
 
     return dwelling_size

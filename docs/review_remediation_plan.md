@@ -61,11 +61,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Fix:** define the AMG once (`src/common.py: AMG_MUNICIPALITIES`, the 9 eodgdl municipalities; drop Tala from both maps and from `TARGET_MUNICIPALITIES`, Tala → `otro` in ENOE). Then **[D]** for OD municipalities absent from ENOE: (a) recode to `otro` at prediction time and report the count (recommended; keeps all OD rows), or (b) drop them from the OD estimate. Make `select_common_informality_population` reuse `filter_common_geography` and return both restricted frames. Report the benchmark and the OD estimate on the same geography, with the out-of-support share printed.
 - **Verify:** encoder municipality categories == `AMG_MUNICIPALITIES + ["otro"]`; notebook 05 prints "N OD workers in municipalities absent from ENOE".
 
-### 1.7 Household size: consistent definition and collapsed tail
+### 1.7 Household size: consistent definition and collapsed tail ✅ done
 - **Where:** `compute_enoe_dwelling_size` (`generate:39-44`), `harmonize:229-243`.
 - **What/why:** ENOE counts every SDEM row, including 202 `c_res == 2` (definitively absent) persons, inflating 3.2% of dwellings; OD is a self-reported category capped at "10 y +". Weighted share of 8+ persons: ENOE 8.4% vs OD 1.6% — a 5× shift in a feature used by both models. ENOE `tamano_viv_num` is uncapped while OD's is capped at 10 (latent trap).
 - **Fix:** count only `c_res in {1, 3}` rows (and pass the same filter for both employment modes); collapse `tamano_viv_cat` to `1…6, 7_y_mas` in both surveys; cap `tamano_viv_num` at 10 in ENOE too. Re-check the distribution comparison in notebook 03.
 - **Verify:** |ENOE − OD| share for the top category < 2 pp; `tamano_viv_num.max() == 10` in both.
+- **Done (2026-08-27):** ENOE dwelling size counts `c_res ∈ {1,3}` only (226 workers' dwellings changed); `HOUSEHOLD_SIZE_LABELS = 1…6, 7_y_mas` and `HOUSEHOLD_SIZE_CAP = 10` in `src/common.py`, applied identically to both surveys. Resulting weighted shares of workers: `7_y_mas` ENOE 12.2% vs OD 5.6% (was 8+: 8.4% vs 1.6%); categories 1–6 within 6 pp.
 
 ### 1.8 `survey_stratum` is the socio-economic stratum
 - **Where:** `ENOE_RENAMES` (`generate:18`).
