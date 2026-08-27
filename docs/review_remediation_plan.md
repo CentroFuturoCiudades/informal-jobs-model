@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phase 0 done** (2026-08-27); Phases 1–3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phase 0 done**, Phase 1 in progress (2026-08-27); Phases 2–3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -22,11 +22,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 
 ## Phase 1 — Data-correctness fixes (change training data) **[R]**
 
-### 1.1 SCIAN code 9 → services
+### 1.1 SCIAN code 9 → services ✅ done
 - **Where:** `src/harmonize_enoe_od_dataframes.py:257`.
 - **What/why:** ENOE `scian` is the 2-digit SCIAN sector: 8 = Transportes, **9 = Información en medios masivos**, 10–19 = services. Code 9 is currently sent to `gobierno_otro_agricultura`, where it is 15% of the class weight in the metro area — while the OD version of that class is only "Gobierno/sector público". Cross-check: `rama_est2` puts codes 8 and 9 in the same bucket.
 - **Fix:** `9: "servicios_transporte"`. **[D]** also decide 2 (Minería) and 3 (Electricidad/agua/gas), currently `gobierno_otro_agricultura` (24 workers); `manufactura_construccion` is the more natural home. Document the intent next to the dict.
 - **Verify:** ENOE `gobierno_otro_agricultura` share in the common geography drops from ~5.6% to ~4.75% (OD: 4.07%).
+- **Done (2026-08-27):** 9 → `servicios_transporte`, 2 and 3 → `manufactura_construccion`. The whole sector mapping (ENOE `scian` and OD `giro_empresa`) now lives in `src/mappings/sector.yaml` with INEGI labels, old values as comments and a changelog; loaded via `src.load_mapping("sector")`. Effect on the ENOE training set (Jalisco): `gobierno_otro_agricultura` 14.06% → 13.12%, `servicios_transporte` +0.63 pp, `manufactura_construccion` +0.31 pp.
 
 ### 1.2 `eda == 98` is "age unspecified", not 98 years
 - **Where:** `harmonize_enoe_age` (`harmonize:77`); admitted by `ENOE_MAX_AGE = 98` in stage 1.

@@ -1,5 +1,18 @@
+import functools
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import yaml
+
+MAPPINGS_DIR = Path(__file__).parent / "mappings"
+
+
+@functools.cache
+def load_mapping(name):
+    """Load a harmonization mapping (``src/mappings/<name>.yaml``) as a dict of dicts."""
+    with open(MAPPINGS_DIR / f"{name}.yaml", encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
 NO_ESPECIFICADO = "no_especificado"
@@ -268,29 +281,7 @@ def harmonize_od_household_size(od):
 # ECONOMIC SECTOR
 def harmonize_enoe_sector(enoe):
     enoe = enoe.copy()
-    sector_mapping = {
-        1: "gobierno_otro_agricultura",
-        2: "gobierno_otro_agricultura",
-        3: "gobierno_otro_agricultura",
-        4: "manufactura_construccion",
-        5: "manufactura_construccion",
-        6: "comercio",
-        7: "comercio",
-        8: "servicios_transporte",
-        9: "gobierno_otro_agricultura",
-        10: "servicios_transporte",
-        11: "servicios_transporte",
-        12: "servicios_transporte",
-        13: "servicios_transporte",
-        14: "servicios_transporte",
-        15: "servicios_transporte",
-        16: "servicios_transporte",
-        17: "servicios_transporte",
-        18: "servicios_transporte",
-        19: "servicios_transporte",
-        20: "gobierno_otro_agricultura",
-        21: NO_ESPECIFICADO
-    }
+    sector_mapping = load_mapping("sector")["enoe_scian"]
     assert_mapping_covers(enoe["scian"], sector_mapping)
     enoe["sector"] = enoe["scian"].map(sector_mapping).fillna(NO_ESPECIFICADO)
     enoe["sector_desconocido"] = enoe["sector"].eq(NO_ESPECIFICADO)
@@ -299,13 +290,7 @@ def harmonize_enoe_sector(enoe):
 
 def harmonize_od_sector(od):
     od = od.copy()
-    sector_mapping = {
-        "Comercio": "comercio",
-        "Servicio": "servicios_transporte",
-        "Educación": "servicios_transporte",
-        "Industria": "manufactura_construccion",
-        "Gobierno/sector público": "gobierno_otro_agricultura"
-    }
+    sector_mapping = load_mapping("sector")["od_giro_empresa"]
     assert_mapping_covers(od["giro_empresa"], sector_mapping)
     od["sector"] = od["giro_empresa"].map(sector_mapping).fillna(NO_ESPECIFICADO)
     od["sector_desconocido"] = od["sector"].eq(NO_ESPECIFICADO)

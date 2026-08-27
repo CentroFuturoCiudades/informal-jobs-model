@@ -1,0 +1,43 @@
+# Harmonized economic sector for both surveys.
+#
+# The four harmonized classes are the values used everywhere downstream (SECTOR_CLASSES):
+#   comercio | gobierno_otro_agricultura | manufactura_construccion | servicios_transporte
+# `no_especificado` marks an unknown sector. Any source code/label not listed here makes
+# stage 2 fail (assert_mapping_covers), so new codes must be added deliberately.
+#
+# Changelog
+#   2026-08-27  scian 9 (Información en medios masivos) moved gobierno_otro_agricultura -> servicios_transporte
+#               (it sits between transport and the other service sectors; it was 15% of the class weight).
+#               scian 2 (Minería) and 3 (Electricidad, agua y gas) moved gobierno_otro_agricultura ->
+#               manufactura_construccion (industrial activity; the OD counterpart of the government class is
+#               only "Gobierno/sector público"). 24 workers in 2023t1.
+
+enoe_scian:          # ENOE `scian`: 2-digit SCIAN sector as precoded by INEGI
+  1: gobierno_otro_agricultura   # Agricultura, ganadería, aprovechamiento forestal, pesca y caza
+  2: manufactura_construccion    # Minería                                     (was: gobierno_otro_agricultura)
+  3: manufactura_construccion    # Electricidad, agua y suministro de gas      (was: gobierno_otro_agricultura)
+  4: manufactura_construccion    # Construcción
+  5: manufactura_construccion    # Industrias manufactureras
+  6: comercio                    # Comercio al por mayor
+  7: comercio                    # Comercio al por menor
+  8: servicios_transporte        # Transportes, correos y almacenamiento
+  9: servicios_transporte        # Información en medios masivos               (was: gobierno_otro_agricultura)
+  10: servicios_transporte       # Servicios financieros y de seguros
+  11: servicios_transporte       # Servicios inmobiliarios y de alquiler
+  12: servicios_transporte       # Servicios profesionales, científicos y técnicos
+  13: servicios_transporte       # Corporativos
+  14: servicios_transporte       # Servicios de apoyo a los negocios y manejo de residuos
+  15: servicios_transporte       # Servicios educativos
+  16: servicios_transporte       # Servicios de salud y de asistencia social
+  17: servicios_transporte       # Servicios de esparcimiento culturales y deportivos
+  18: servicios_transporte       # Servicios de alojamiento temporal y de preparación de alimentos
+  19: servicios_transporte       # Otros servicios excepto actividades gubernamentales
+  20: gobierno_otro_agricultura  # Actividades gubernamentales y de organismos internacionales
+  21: no_especificado            # No especificado
+
+od_giro_empresa:     # OD `giro_empresa` ("Giro de la empresa donde trabaja")
+  Comercio: comercio
+  Servicio: servicios_transporte
+  Educación: servicios_transporte
+  Industria: manufactura_construccion
+  Gobierno/sector público: gobierno_otro_agricultura
