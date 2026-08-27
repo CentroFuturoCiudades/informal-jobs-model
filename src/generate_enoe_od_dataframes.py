@@ -17,7 +17,10 @@ ENOE_HOUSEHOLD_KEYS = ENOE_DWELLING_KEYS + ["n_hog", "h_mud"]
 ENOE_PERSON_KEYS = ENOE_HOUSEHOLD_KEYS + ["n_ren"]
 ENOE_RENAMES = {"fac_tri": "survey_weight", "est": "survey_stratum", "upm": "survey_psu"}
 ENOE_OUTPUT_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "survey_weight", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"]
-ENOE_EMPLOYMENT_FILTERS = ("p1", "clase2")
+ENOE_EMPLOYMENT_FILTERS = ("clase2", "p1")
+# Analytical universe for the "clase2" filter: definitive interview, habitual/new residents, age 12+ (INEGI uses 15+;
+# 12 keeps the working 12-14 year olds that the OD survey also records). eda == 98 is "age unspecified (12+)".
+ENOE_MIN_AGE, ENOE_MAX_AGE = 12, 98
 
 # OD
 OD_EMPLOYED_CATEGORIES = ["Tiempo completo", "Medio tiempo", "Tenía trabajo, pero no trabajó"]
@@ -40,25 +43,29 @@ def compute_enoe_dwelling_size(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE):
 
     return dwelling_size
 
-def load_enoe_employed_persons(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="p1"):
+def load_enoe_employed_persons(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="clase2"):
     """Employed persons from ``mxcensus.load_enoe_persons`` (SDEM joined with COE1/COE2).
 
     ``employment_filter``:
+      - ``"clase2"`` (default): INEGI's employed population (``clase2 == 1``: working, or with a job but temporarily
+        absent) on the analytical universe ``r_def == 0`` (definitive interview), ``c_res in {1, 3}`` (habitual or new
+        resident) and ``eda`` in [ENOE_MIN_AGE, ENOE_MAX_AGE].
       - ``"p1"``: no residency/age filter; keep persons with COE1 ``p1 == 1`` (worked at least one hour last week).
-      - ``"clase2"``: mxcensus canonical universe (r_def==0, residents, age 15-98) and ``clase2 == 1`` (INEGI employed).
+        This was the definition of the original pipeline; it is a subset of ``"clase2"`` for 2023t1.
     """
-    if employment_filter == "p1":
-        persons = mxcensus.load_enoe_persons(period=period, ent=state_code, canonical_filter=False)
+    persons = mxcensus.load_enoe_persons(period=period, ent=state_code, canonical_filter=False)
+    if employment_filter == "clase2":
+        age = pd.to_numeric(persons["eda"], errors="coerce")
+        in_universe = (pd.to_numeric(persons["r_def"], errors="coerce") == 0) & persons["c_res"].isin(["1", "3"]) & age.between(ENOE_MIN_AGE, ENOE_MAX_AGE)
+        employed = in_universe & (persons["clase2"] == "1")
+    elif employment_filter == "p1":
         employed = persons["p1"] == "1"
-    elif employment_filter == "clase2":
-        persons = mxcensus.load_enoe_persons(period=period, ent=state_code, canonical_filter=True)
-        employed = persons["is_ocupado"]
     else:
         raise ValueError(f"employment_filter must be one of {ENOE_EMPLOYMENT_FILTERS}, got {employment_filter!r}")
 
     return persons[employed.fillna(False).astype(bool)].copy()
 
-def generate_enoe_dataframe(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="p1"):
+def generate_enoe_dataframe(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="clase2"):
     enoe = load_enoe_employed_persons(period=period, state_code=state_code, employment_filter=employment_filter)
     dwelling_size = compute_enoe_dwelling_size(period=period, state_code=state_code)
     enoe = enoe.merge(dwelling_size, on=ENOE_DWELLING_KEYS, how="left", validate="many_to_one")
