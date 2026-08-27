@@ -188,3 +188,49 @@ def predict_proba_marginalizing(model, X, level_subsets=None):
     marginalized = pd.Series(["+".join(names) for names in marginalized_features], index=X.index, dtype=object)
 
     return normalize_predicted_probabilities(result), marginalized
+
+
+# Model selection with a one-standard-error rule on paired folds (review item 2.2)
+FAMILY_COMPLEXITY = {"LogisticRegression": 0, "RandomForest": 1, "GradientBoosting": 2}
+# +1: larger value = more complex; -1: larger value = simpler (more regularization)
+PARAMETER_COMPLEXITY_DIRECTION = {
+    "classifier__max_iter": 1, "classifier__max_leaf_nodes": 1, "classifier__learning_rate": 1, "classifier__max_features": 1,
+    "classifier__C": 1, "classifier__l2_regularization": -1, "classifier__min_samples_leaf": -1,
+}
+
+def complexity_key(model_name, params):
+    """Sort key: simpler families first, then simpler hyperparameters (lexicographic over sorted parameter names)."""
+    values = []
+    for name in sorted(params):
+        value = params[name]
+        if value == "sqrt":
+            value = 0.3
+        values.append(PARAMETER_COMPLEXITY_DIRECTION.get(name, 1) * float(value))
+
+    return (FAMILY_COMPLEXITY.get(model_name, 99), tuple(values))
+
+def select_one_se(results):
+    """Mark the configuration to keep under a one-standard-error rule.
+
+    ``results`` has one row per candidate with ``model``, ``best_params`` and ``fold_log_losses`` (the same CV folds
+    for every row). The best mean log loss is the reference; every candidate whose paired fold-difference to the
+    reference is within one standard error of zero is eligible, and the simplest eligible candidate
+    (:func:`complexity_key`) is selected. Family gaps of a few thousandths against fold spreads of ~0.015 are noise,
+    so strict argmin would pick a family by coin flip.
+    """
+    table = results.reset_index(drop=True).copy()
+    losses = np.array([np.asarray(row, dtype=float) for row in table["fold_log_losses"]])
+    table["weighted_log_loss"] = losses.mean(axis=1)
+    best = int(table["weighted_log_loss"].idxmin())
+    differences = losses - losses[best]
+    table["mean_diff_vs_best"] = differences.mean(axis=1)
+    table["se_diff_vs_best"] = differences.std(axis=1, ddof=1) / np.sqrt(losses.shape[1])
+    table["within_one_se"] = table["mean_diff_vs_best"] <= table["se_diff_vs_best"]
+    keys = [complexity_key(model, params) for model, params in zip(table["model"], table["best_params"])]
+    table["complexity_rank"] = pd.Series(keys).rank(method="first").astype(int)
+    eligible = table.index[table["within_one_se"]]
+    selected = min(eligible, key=lambda index: keys[index])
+    table["selected"] = False
+    table.loc[selected, "selected"] = True
+
+    return table

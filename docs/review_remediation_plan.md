@@ -113,10 +113,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 
 - **Result (2.1):** all three GradientBoosting winners (sector with-education; informality with/without education) selected `max_iter = 100`, the **lower edge of the grid** (learning rate 0.05). The grid must be extended downward (`{50, 100, 200, 400}`) — folded into the 2.2 re-run to avoid a separate 25-minute pass. Metro held-out: informality Model A log loss 0.4774 → 0.4744, AUC 0.8376 → 0.8386; OD expected informality 33.23% → 33.50%.
 
-### 2.2 Model selection with a tolerance
+### 2.2 Model selection with a tolerance ✅ done
 - **Where:** `impute:230`, `informality:266` (strict `<` on mean CV log loss).
 - **Why:** family gaps (0.0015–0.0035) are 5–10× smaller than fold sd (0.010–0.020); the hybrids bolt an HGB arm to an RF arm by coin flip.
 - **Fix:** paired per-fold comparison + 1-SE rule preferring the simpler family; or fix one family for both arms. Report all fold values, not just mean ± sd.
+
+- **Result (2.2):** no family switch — the paired differences GB−RF are small but consistent across folds (sector A +0.0013 ± 0.0009, informality A +0.0029 ± 0.0011, B +0.0025 ± 0.0011), so RF is *not* within one SE; the rule did simplify within families (sector A: `max_iter` 50, L2 1.0, 31 leaves; informality A and B: `max_iter` 100, L2 1.0, 15 leaves — 50 was available and lost). Sector B stays RandomForest. Metro held-out log loss A 0.4744 → 0.4750 (equal within noise). OD expected informality 33.45%; the `gobierno_otro_agricultura` conditional rate keeps drifting up run to run (13.1 → 18.3% across the Phase 1–2 re-runs) — the smallest class, to be examined under 2.3/2.5.
 
 ### 2.3 Calibration evidence
 - **Where:** stage 4 has none; notebook 05 cell 55 `calibration_r2`.

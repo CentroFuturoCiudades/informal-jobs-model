@@ -11,7 +11,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
@@ -131,7 +131,7 @@ def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random
         "GradientBoosting": {
             "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
             "params": {
-                "classifier__max_iter": [100, 200, 400],
+                "classifier__max_iter": [50, 100, 200, 400],
                 "classifier__learning_rate": [0.05, 0.1],
                 "classifier__max_leaf_nodes": [15, 31],
                 "classifier__l2_regularization": [0.0, 1.0]
@@ -153,10 +153,11 @@ def tune_probabilistic_sector_models(X, y, sample_weights, groups, sector_featur
     splits = list(cross_validation.split(X, y, groups=groups))
 
     model_results = []
+    grid_results = []
     best_models = {}
 
     for model_name, model_config in models.items():
-        best_result = None
+        family_results = []
 
         for params in ParameterGrid(model_config["params"]):
             fold_log_loss = []
@@ -194,25 +195,32 @@ def tune_probabilistic_sector_models(X, y, sample_weights, groups, sector_featur
                 "weighted_balanced_accuracy": np.mean(fold_balanced_accuracy),
                 "weighted_accuracy": np.mean(fold_accuracy),
                 "weighted_f1_macro": np.mean(fold_f1_macro),
-                "best_params": params
+                "best_params": params,
+                "fold_log_losses": [float(value) for value in fold_log_loss]
             }
 
-            if best_result is None or result["weighted_log_loss"] < best_result["weighted_log_loss"]:
-                best_result = result
+            family_results.append(result)
+
+        # Within the family: simplest configuration within one standard error of the best (paired folds).
+        family_table = select_one_se(pd.DataFrame(family_results))
+        best_result = family_results[int(family_table.index[family_table["selected"]][0])]
 
         best_model = clone(model_config["model"])
         best_model.set_params(**best_result["best_params"])
         best_model.fit(X, y, classifier__sample_weight=sample_weights)
 
+        grid_results.extend(family_results)
         model_results.append(best_result)
         best_models[model_name] = best_model
 
-    model_summary = pd.DataFrame(model_results).sort_values("weighted_log_loss").reset_index(drop=True)
+    # Across families: same rule, simplest family within one standard error of the best is selected.
+    model_summary = select_one_se(pd.DataFrame(model_results)).sort_values("weighted_log_loss").reset_index(drop=True)
+    model_summary.attrs["grid_results"] = pd.DataFrame(grid_results)
 
     return model_summary, best_models
 
 def get_best_probabilistic_sector_model(model_summary, best_models):
-    best_model_name = model_summary.iloc[0]["model"]
+    best_model_name = model_summary.loc[model_summary["selected"], "model"].iloc[0]
     best_model = best_models[best_model_name]
 
     return best_model_name, best_model
