@@ -85,7 +85,7 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Where:** `harmonize:144` (`.fillna("otro")`).
 - **Fix:** map NA → `NO_ESPECIFICADO`; only codes present but outside the AMG → `otro`. INEGI masks municipality as 999 in some quarters.
 
-### 1.11 ENOE workers with unspecified sector **[D]**
+### 1.11 ENOE workers with unspecified sector ✅ done
 - **Where:** `informality_model.py:81` drops `sector == no_especificado` (31 workers, 13,669 weighted, 100% informal).
 - **What/why:** non-random exclusion in the direction of the model's known bias; it also moves the ENOE benchmark 39.59% → 39.26%. OD forces every worker into 4 sectors, so the two populations differ.
 - **Options:** (a) keep dropping, but report `dropped_weighted_share` in `calculate_enoe_informality_benchmark` and quote the all-sector rate as the benchmark; (b) keep them in training with `sector = no_especificado` as a fifth level (harmless once 1.5 is in). Recommend (b) for training and quoting the all-sector benchmark.

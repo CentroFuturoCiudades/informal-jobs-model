@@ -45,8 +45,10 @@ def select_common_informality_population(enoe, od):
     enoe_common, _, geography_summary = filter_common_geography(enoe, od)
     training_municipalities = set(geography_summary.loc[geography_summary["enoe"], "municipio"])
 
+    # Workers with an unspecified sector stay in the population: sector = no_especificado is a declared level
+    # (the OD side never scores it because sector is marginalized over the four classes) and they are 100% informal
+    # in 2023t1, so dropping them would bias the benchmark and the training set (review item 1.11).
     training_population = enoe_common[enoe_common["informal"].notna()].copy()
-    training_population = training_population[training_population["sector"].isin(SECTOR_CLASSES)].copy()
     training_population = training_population.reset_index(drop=True)
 
     od_weights = od.groupby("municipio")["expansion_factor"].sum()
@@ -80,12 +82,16 @@ def calculate_enoe_informality_benchmark(enoe):
     weighted_informal_population = (sample_weights * informal).sum()
     weighted_rate = weighted_informal_population / weighted_population
 
+    unspecified_sector = enoe["sector"].eq(NO_ESPECIFICADO)
     benchmark = pd.DataFrame({
         "sample_workers": [len(enoe)],
         "weighted_population": [weighted_population],
         "weighted_informal_population": [weighted_informal_population],
         "unweighted_informality_rate": [informal.mean()],
-        "weighted_informality_rate": [weighted_rate]
+        "weighted_informality_rate": [weighted_rate],
+        "unspecified_sector_workers": [int(unspecified_sector.sum())],
+        "unspecified_sector_weighted_share": [sample_weights[unspecified_sector].sum() / weighted_population],
+        "unspecified_sector_informality_rate": [(sample_weights * informal)[unspecified_sector].sum() / max(sample_weights[unspecified_sector].sum(), 1)]
     })
 
     return benchmark
@@ -109,7 +115,6 @@ def split_enoe_informality_data(enoe, n_splits=5, test_fold=0, random_state=42):
 # Training data
 def prepare_enoe_informality_training_data(enoe, features=INFORMALITY_FEATURES):
     training_data = enoe[enoe["informal"].notna()].copy()
-    training_data = training_data[training_data["sector"].isin(SECTOR_CLASSES)].copy()
     training_data = training_data.reset_index(drop=True)
 
     X = prepare_informality_features(training_data, features)
