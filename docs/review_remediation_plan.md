@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phase 0 done**, Phase 1 in progress (2026-08-27); Phases 2–3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phases 0–1 done** (2026-08-27, outputs regenerated in `1d30274`); 1.12 found during the re-run and pending; Phases 2–3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -89,6 +89,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Where:** `informality_model.py:81` drops `sector == no_especificado` (31 workers, 13,669 weighted, 100% informal).
 - **What/why:** non-random exclusion in the direction of the model's known bias; it also moves the ENOE benchmark 39.59% → 39.26%. OD forces every worker into 4 sectors, so the two populations differ.
 - **Options:** (a) keep dropping, but report `dropped_weighted_share` in `calculate_enoe_informality_benchmark` and quote the all-sector rate as the benchmark; (b) keep them in training with `sector = no_especificado` as a fifth level (harmless once 1.5 is in). Recommend (b) for training and quoting the all-sector benchmark.
+
+### 1.12 A zero-support level is not neutral for tree models **[R]** (found after Phase 1 re-run)
+- **Where:** `impute_missing_sectors_hybrid`, `predict_od_informality` (both use one-hot + tree ensembles).
+- **What/why:** With explicit categories (1.5) an unsupported level (e.g. `ocupacion = no_especificado`, absent from ENOE) becomes an all-zero one-hot block. A tree needs only K−1 indicators, so the all-zero row follows the branch of whichever training level the trees did not split on — in ENOE that is `sin_pago` (100% informal). Measured on the 194 workers of 1.3: P(informal) = 0.93 with `no_especificado` vs 0.53 as `trabajador` and 0.75 as `independiente`. Same mechanism for `estado_civil`/`parentesco = no_especificado` (informality) and `ocupacion_raw ∈ {Hogar, Estudiante, Jubilado, Desempleado}`, `parentesco = no_especificado` (sector model; the 327 rows of the review).
+- **Fix:** marginalize, as already done for sector: for rows whose value of feature *f* has no training support, predict once per supported level and average with the weighted training share of each level (`predict_marginalizing_unsupported` in `src/common.py`, used by both prediction functions; several unsupported features handled sequentially under independence). Record which rows were marginalized (`*_marginalized_features` column).
+- **Verify:** the 194 score ≈ the share-weighted mix (~0.55), not 0.93; sector probabilities of the 327 rows no longer differ systematically from other imputed rows; `count_levels_without_training_support` output unchanged (it reports, the marginalization handles).
 
 ---
 
