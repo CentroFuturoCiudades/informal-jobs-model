@@ -162,8 +162,9 @@ def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
             }
         },
         "GradientBoosting": {
-            "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(max_iter=500, early_stopping=True, class_weight=None, random_state=random_state))]),
+            "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
             "params": {
+                "classifier__max_iter": [100, 200, 400],
                 "classifier__learning_rate": [0.05, 0.1],
                 "classifier__max_leaf_nodes": [15, 31],
                 "classifier__l2_regularization": [0.0, 1.0]

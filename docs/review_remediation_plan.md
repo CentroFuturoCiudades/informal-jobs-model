@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phases 0–1 done** (2026-08-27, outputs regenerated in `1d30274`); 1.12 found during the re-run and pending; Phases 2–3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phases 0–1 done** (2026-08-27, incl. 1.12–1.13); Phase 2 in progress; Phase 3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -106,10 +106,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 
 ## Phase 2 — Modelling / validation **[R]**
 
-### 2.1 Group-safe early stopping
+### 2.1 Group-safe early stopping ✅ done
 - **Where:** `HistGradientBoostingClassifier(early_stopping=True)` at `impute:163`, `informality:187`.
 - **Why:** the internal 10% validation split is row-level and ignores households — the leak CLAUDE.md forbids; both shipped with-education models are HGBs.
 - **Fix:** `early_stopping=False`; add `max_iter ∈ {100, 200, 400}` to the grid (outer CV is already grouped). Optionally also pass a `category` dtype frame straight to HGB so `categorical_features="from_dtype"` actually engages (today the ColumnTransformer emits dense floats and `is_categorical_ is None`).
+
+- **Result (2.1):** all three GradientBoosting winners (sector with-education; informality with/without education) selected `max_iter = 100`, the **lower edge of the grid** (learning rate 0.05). The grid must be extended downward (`{50, 100, 200, 400}`) — folded into the 2.2 re-run to avoid a separate 25-minute pass. Metro held-out: informality Model A log loss 0.4774 → 0.4744, AUC 0.8376 → 0.8386; OD expected informality 33.23% → 33.50%.
 
 ### 2.2 Model selection with a tolerance
 - **Where:** `impute:230`, `informality:266` (strict `<` on mean CV log loss).
