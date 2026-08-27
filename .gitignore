@@ -10,3 +10,4 @@ __pycache__/
 
 # Pre-migration reference outputs (local only)
 outputs_baseline/
+outputs_ref_*/

@@ -7,6 +7,17 @@ NO_ESPECIFICADO = "no_especificado"
 AGE_BINS = [0, 3, 5, 6, 8, 12, 15, 18, 25, 50, 60, 65, np.inf]
 AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_49", "50_59", "60_64", "65_y_mas"]
 
+def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
+    """Fail loudly when a source category is neither mapped nor explicitly allowed to fall through.
+
+    Every harmonizer falls back to ``no_especificado``/``otro``, so a new or renamed source category
+    would otherwise degrade the data silently (new ENOE quarter, eodgdl revision).
+    """
+    observed = set(pd.Series(values).dropna().unique())
+    unmapped = observed - set(mapping) - set(allowed_unmapped)
+    if unmapped:
+        raise ValueError(f"Unmapped categories in {name or getattr(values, 'name', 'series')}: {sorted(map(str, unmapped))}")
+
 # DATA TYPES
 def prepare_enoe_data_types(enoe):
     enoe = enoe.copy()
@@ -30,12 +41,14 @@ def prepare_od_data_types(od):
 # GENDER
 def harmonize_enoe_gender(enoe):
     enoe = enoe.copy()
+    assert_mapping_covers(enoe["sex"], {1, 2})
     enoe["genero"] = enoe["sex"].map({1: "H", 2: "F"}).fillna(NO_ESPECIFICADO)
 
     return enoe
 
 def harmonize_od_gender(od):
     od = od.copy()
+    assert_mapping_covers(od["sexo_nacimiento"], {"Hombres", "Mujeres"})
     od["genero"] = od["sexo_nacimiento"].map({"Hombres": "H", "Mujeres": "F"}).fillna(NO_ESPECIFICADO)
 
     return od
@@ -49,6 +62,7 @@ def harmonize_enoe_occupation(enoe):
         3: "independiente",
         4: "otro"
     }
+    assert_mapping_covers(enoe["pos_ocu"], occupation_mapping)
     enoe["ocupacion"] = enoe["pos_ocu"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
 
     return enoe
@@ -67,6 +81,7 @@ def harmonize_od_occupation(od):
         "Jubilado o pensionado": "otro",
         "Desempleado": "otro"
     }
+    assert_mapping_covers(od["ocupacion_raw"], occupation_mapping)
     od["ocupacion"] = od["ocupacion_raw"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
 
     return od
@@ -102,6 +117,7 @@ def harmonize_enoe_education(enoe):
         9: "postgrado",
         99: NO_ESPECIFICADO
     }
+    assert_mapping_covers(enoe["cs_p13_1"], education_mapping)
     enoe["escolaridad"] = enoe["cs_p13_1"].map(education_mapping).fillna(NO_ESPECIFICADO)
 
     return enoe
@@ -122,6 +138,7 @@ def harmonize_od_education(od):
         "Maestría o doctorado": "postgrado",
         "No sabe": NO_ESPECIFICADO
     }
+    assert_mapping_covers(od["escolaridad_raw"], education_mapping)
     od["escolaridad"] = od["escolaridad_raw"].map(education_mapping).fillna(NO_ESPECIFICADO)
 
     return od
@@ -159,6 +176,7 @@ def harmonize_od_municipality(od):
         "Zapotlanejo": "zapotlanejo",
         "Tala": "tala"
     }
+    assert_mapping_covers(od["municipio_raw"], municipality_mapping)
     od["municipio"] = od["municipio_raw"].map(municipality_mapping).fillna("otro")
 
     return od
@@ -175,6 +193,7 @@ def harmonize_enoe_marital_status(enoe):
         5: "casado",
         6: "soltero"
     }
+    assert_mapping_covers(enoe["e_con"], marital_status_mapping, allowed_unmapped={9})  # 9 = no sabe
     enoe["estado_civil"] = enoe["e_con"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
 
     return enoe
@@ -189,6 +208,7 @@ def harmonize_od_marital_status(od):
         "Separado": "separado",
         "Divorciado": "divorciado"
     }
+    assert_mapping_covers(od["estado_civil_raw"], marital_status_mapping, allowed_unmapped={"Otros (especifique)"})
     od["estado_civil"] = od["estado_civil_raw"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
 
     return od
@@ -205,6 +225,7 @@ def harmonize_enoe_relationship(enoe):
         6: "sin_parentesco"
     }
     relationship_code = enoe["par_c"] // 100
+    assert_mapping_covers(relationship_code, relationship_mapping, name="par_c // 100")
     enoe["parentesco"] = relationship_code.map(relationship_mapping).fillna(NO_ESPECIFICADO)
 
     return enoe
@@ -221,6 +242,7 @@ def harmonize_od_relationship(od):
         "Sin parentesco": "sin_parentesco"
     }
 
+    assert_mapping_covers(od["parentesco_raw"], relationship_mapping)
     od["parentesco"] = od["parentesco_raw"].map(relationship_mapping).fillna(NO_ESPECIFICADO)
 
     return od
@@ -237,6 +259,7 @@ def harmonize_od_household_size(od):
     od = od.copy()
     household_size = od["dwelling_size"].replace({"10 y +": "10_y_mas", "10 y más": "10_y_mas"})
     valid_categories = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10_y_mas"]
+    assert_mapping_covers(household_size, valid_categories, name="dwelling_size")
     od["tamano_viv_cat"] = household_size.where(household_size.isin(valid_categories), NO_ESPECIFICADO)
     od["tamano_viv_num"] = pd.to_numeric(od["tamano_viv_cat"].replace({"10_y_mas": "10"}), errors="coerce").astype("Int64")
 
@@ -268,6 +291,7 @@ def harmonize_enoe_sector(enoe):
         20: "gobierno_otro_agricultura",
         21: NO_ESPECIFICADO
     }
+    assert_mapping_covers(enoe["scian"], sector_mapping)
     enoe["sector"] = enoe["scian"].map(sector_mapping).fillna(NO_ESPECIFICADO)
     enoe["sector_desconocido"] = enoe["sector"].eq(NO_ESPECIFICADO)
 
@@ -282,6 +306,7 @@ def harmonize_od_sector(od):
         "Industria": "manufactura_construccion",
         "Gobierno/sector público": "gobierno_otro_agricultura"
     }
+    assert_mapping_covers(od["giro_empresa"], sector_mapping)
     od["sector"] = od["giro_empresa"].map(sector_mapping).fillna(NO_ESPECIFICADO)
     od["sector_desconocido"] = od["sector"].eq(NO_ESPECIFICADO)
 
@@ -289,6 +314,7 @@ def harmonize_od_sector(od):
 
 def generate_enoe_informal_label(enoe):
     enoe = enoe.copy()
+    assert_mapping_covers(enoe["emp_ppal"], {1, 2})
     enoe["informal"] = enoe["emp_ppal"].map({1: 1, 2: 0}).astype("Int64")
 
     return enoe

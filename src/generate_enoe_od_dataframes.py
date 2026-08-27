@@ -7,6 +7,7 @@ and cache the raw tables on first use (see README, "Data access").
 import eodgdl
 import mxcensus
 import pandas as pd
+from mxcensus.enoe import _DWELLING_KEY_SPEC, _level_key
 
 
 # ENOE
@@ -36,9 +37,16 @@ OD_RAW_COLUMN_RENAMES = {
 OD_RENAMES = {"ponderador": "expansion_factor", "personas_en_vivienda": "dwelling_size", **OD_RAW_COLUMN_RENAMES}
 
 
+def assert_enoe_dwelling_key(frame, period):
+    """The hard-coded keys are only valid for the eras where mxcensus resolves the same dwelling key."""
+    resolved = _level_key(_DWELLING_KEY_SPEC, frame)
+    if sorted(resolved) != sorted(ENOE_DWELLING_KEYS):
+        raise ValueError(f"ENOE period {period!r} resolves the dwelling key to {resolved}, but this pipeline expects {ENOE_DWELLING_KEYS}")
+
 def compute_enoe_dwelling_size(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE):
     """Number of persons per dwelling, counted over the full SDEM roster (all ages, all residents)."""
     sdem = mxcensus.load_enoe(table="sdem", period=period, ent=state_code)
+    assert_enoe_dwelling_key(sdem, period)
     dwelling_size = sdem.groupby(ENOE_DWELLING_KEYS).size().rename("dwelling_size").reset_index()
 
     return dwelling_size
@@ -54,6 +62,7 @@ def load_enoe_employed_persons(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, e
         This was the definition of the original pipeline; it is a subset of ``"clase2"`` for 2023t1.
     """
     persons = mxcensus.load_enoe_persons(period=period, ent=state_code, canonical_filter=False)
+    assert_enoe_dwelling_key(persons, period)
     if employment_filter == "clase2":
         age = pd.to_numeric(persons["eda"], errors="coerce")
         in_universe = (pd.to_numeric(persons["r_def"], errors="coerce") == 0) & persons["c_res"].isin(["1", "3"]) & age.between(ENOE_MIN_AGE, ENOE_MAX_AGE)
@@ -83,6 +92,10 @@ def generate_od_dataframe(eod_path=None):
     population = tables.hab.reset_index()
     households = tables.viv[OD_DWELLING_COLUMNS]
     od = population.merge(households, left_on="folio_vivienda", right_index=True, how="left", validate="many_to_one")
+    suffixed = [column for column in od.columns if column.endswith(("_x", "_y"))]
+    assert not suffixed, f"Person and dwelling tables share columns; eodgdl schema changed: {suffixed}"
+    missing = sorted(set(OD_RENAMES) - set(od.columns))
+    assert not missing, f"Expected eodgdl columns are missing (schema changed?): {missing}"
     od = od[od["trabajo_semana_pasada"].isin(OD_EMPLOYED_CATEGORIES)].copy()
     od = od.rename(columns=OD_RENAMES)
     # eodgdl delivers pandas Categoricals; plain strings are simpler for mapping, sklearn and parquet.
