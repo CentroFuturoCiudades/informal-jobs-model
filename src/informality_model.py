@@ -273,6 +273,62 @@ def get_best_informality_model(model_summary, best_models):
 
 
 # Calibration
+# Masked evaluation of the without-education model on the OD non-respondent profile (review item 2.4)
+OD_PROFILE_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat"]
+
+def reweight_to_od_profile(enoe_rows, od_target_rows, features=OD_PROFILE_FEATURES, weight_column="survey_weight", random_state=42):
+    """Reweight ENOE rows so their covariate distribution matches a target OD sub-population.
+
+    A weighted logistic classifier separates the target OD rows (expansion factors) from the ENOE rows (survey
+    weights) on the shared features; each ENOE row's weight is multiplied by the fitted odds, which is the density
+    ratio f_target(x) / f_enoe(x) (rows that look like the target count more). Weights are rescaled to the original
+    total. Returns ``(reweighted_rows, diagnostics)`` where diagnostics has the effective sample size and the share of
+    weight carried by the top decile of odds ratios (a check that the reweighting is not driven by a few rows).
+    """
+    X_enoe = prepare_model_features(enoe_rows, features)
+    X_target = prepare_model_features(od_target_rows, features)
+    stacked = pd.concat([X_enoe, X_target], ignore_index=True)
+    label = np.r_[np.zeros(len(X_enoe)), np.ones(len(X_target))]
+    # Each group's weights are rescaled to mean 1 (equal total mass per group; the classifier then estimates the
+    # density ratio of the two weighted distributions without the penalty term dominating).
+    enoe_weight = enoe_rows[weight_column].astype(float).to_numpy()
+    target_weight = od_target_rows["expansion_factor"].astype(float).to_numpy()
+    weight = np.r_[enoe_weight / enoe_weight.mean(), target_weight / target_weight.mean() * (len(enoe_weight) / len(target_weight))]
+    numerical_features, categorical_features = split_feature_types(features)
+    preprocessor = ColumnTransformer([("numerical", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), numerical_features), ("categorical", OneHotEncoder(handle_unknown="ignore"), categorical_features)])
+    classifier = Pipeline([("preprocessor", preprocessor), ("classifier", LogisticRegression(C=1.0, max_iter=2000, random_state=random_state))])
+    classifier.fit(stacked, label, classifier__sample_weight=weight)
+    probability = classifier.predict_proba(X_enoe)[:, 1].clip(1e-4, 1 - 1e-4)
+    odds = probability / (1 - probability)
+
+    reweighted = enoe_rows.copy()
+    new_weight = reweighted[weight_column].astype(float) * odds
+    reweighted[weight_column] = new_weight * reweighted[weight_column].astype(float).sum() / new_weight.sum()
+    top_decile = odds >= np.quantile(odds, 0.9)
+    diagnostics = pd.Series({
+        "rows": len(reweighted),
+        "effective_sample_size": float(new_weight.sum() ** 2 / (new_weight ** 2).sum()),
+        "top_decile_weight_share": float(new_weight[top_decile].sum() / new_weight.sum()),
+        "odds_ratio_median": float(np.median(odds)),
+        "odds_ratio_p90": float(np.quantile(odds, 0.9)),
+    })
+
+    return reweighted, diagnostics
+
+def evaluate_on_od_profile(models, enoe_test, od_target_rows, features_by_model, profile_features=OD_PROFILE_FEATURES):
+    """Held-out metrics for ``{label: model}`` on the same ENOE rows under survey weights and under weights matched to
+    ``od_target_rows`` (e.g. the OD workers with missing education). ``features_by_model`` maps label -> feature list."""
+    reweighted, diagnostics = reweight_to_od_profile(enoe_test, od_target_rows, features=profile_features)
+    rows = []
+    for weighting, data in (("survey weights", enoe_test), ("OD non-respondent profile", reweighted)):
+        for label, model in models.items():
+            metrics, _, _ = evaluate_informality_model(model, data, features=features_by_model[label])
+            rows.append(metrics.iloc[0].rename((weighting, label)))
+    table = pd.DataFrame(rows)
+    table.index = pd.MultiIndex.from_tuples(table.index, names=["weighting", "model"])
+
+    return table, diagnostics
+
 # Held-out evaluation
 def evaluate_informality_model(model, validation_data, features=INFORMALITY_FEATURES, n_calibration_bins=10):
     X = prepare_informality_features(validation_data, features)
