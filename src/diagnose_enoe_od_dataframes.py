@@ -1,6 +1,8 @@
 import pandas as pd
 
-TARGET_MUNICIPALITIES = ["guadalajara", "zapopan", "tlaquepaque", "tlajomulco", "tonala", "el_salto", "juanacatlan", "ixtlahuacan_membrillos", "zapotlanejo", "tala"]
+from .common import AMG_MUNICIPALITIES
+
+TARGET_MUNICIPALITIES = AMG_MUNICIPALITIES
 
 def filter_common_geography(enoe, od, target_municipalities=TARGET_MUNICIPALITIES):
     enoe = enoe.copy()

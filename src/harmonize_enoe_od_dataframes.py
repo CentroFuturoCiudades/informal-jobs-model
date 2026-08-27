@@ -171,8 +171,7 @@ def harmonize_enoe_municipality(enoe):
         70: "el_salto",
         51: "juanacatlan",
         44: "ixtlahuacan_membrillos",
-        124: "zapotlanejo",
-        83: "tala"
+        124: "zapotlanejo"
     }
     enoe["municipio"] = enoe["mun"].map(municipality_mapping).fillna("otro")
 
@@ -189,8 +188,7 @@ def harmonize_od_municipality(od):
         "El Salto": "el_salto",
         "Juanacatlán": "juanacatlan",
         "Ixtlahuacán de los Membrillos": "ixtlahuacan_membrillos",
-        "Zapotlanejo": "zapotlanejo",
-        "Tala": "tala"
+        "Zapotlanejo": "zapotlanejo"
     }
     assert_mapping_covers(od["municipio_raw"], municipality_mapping)
     od["municipio"] = od["municipio_raw"].map(municipality_mapping).fillna("otro")

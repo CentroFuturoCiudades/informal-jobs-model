@@ -11,6 +11,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from .diagnose_enoe_od_dataframes import filter_common_geography
 from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
@@ -35,26 +36,24 @@ def predict_informal_probability(model, X):
 
 # Geography and diagnostics
 def select_common_informality_population(enoe, od):
-    excluded_municipalities = {"otro", "no_especificado"}
+    """ENOE training population on the metro municipalities sampled by both surveys (same rule as stage 3).
 
-    enoe_municipalities = set(enoe["municipio"].dropna().astype(str)) - excluded_municipalities
-    od_municipalities = set(od["municipio"].dropna().astype(str)) - excluded_municipalities
-    common_municipalities = sorted(enoe_municipalities & od_municipalities)
-    all_municipalities = sorted(enoe_municipalities | od_municipalities)
+    Returns the ENOE frame restricted to the common municipalities (with a valid label and sector), the set of
+    municipalities ENOE sampled, and a summary with the OD workers that fall outside that set (they are scored with
+    ``municipio = "otro"`` by :func:`predict_od_informality`).
+    """
+    enoe_common, _, geography_summary = filter_common_geography(enoe, od)
+    training_municipalities = set(geography_summary.loc[geography_summary["enoe"], "municipio"])
 
-    training_population = enoe[enoe["municipio"].isin(common_municipalities)].copy()
-    training_population = training_population[training_population["informal"].notna()].copy()
+    training_population = enoe_common[enoe_common["informal"].notna()].copy()
     training_population = training_population[training_population["sector"].isin(SECTOR_CLASSES)].copy()
     training_population = training_population.reset_index(drop=True)
 
-    geography_summary = pd.DataFrame({
-        "municipio": all_municipalities,
-        "enoe": [municipality in enoe_municipalities for municipality in all_municipalities],
-        "od": [municipality in od_municipalities for municipality in all_municipalities],
-        "common": [municipality in common_municipalities for municipality in all_municipalities]
-    })
+    od_weights = od.groupby("municipio")["expansion_factor"].sum()
+    geography_summary["od_workers"] = geography_summary["municipio"].map(od.groupby("municipio").size()).fillna(0).astype(int)
+    geography_summary["od_weighted_share"] = geography_summary["municipio"].map(od_weights / od_weights.sum()).fillna(0.0)
 
-    return training_population, geography_summary
+    return training_population, training_municipalities, geography_summary
 
 def compare_informality_feature_missingness(enoe, od, columns):
     results = []
@@ -340,10 +339,18 @@ def validate_od_sector_probabilities(od, tolerance=1e-8):
 
 
 # Apply informality models to OD
-def predict_od_informality(model_with_education, model_without_education, od, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, threshold=0.5):
+def predict_od_informality(model_with_education, model_without_education, od, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, threshold=0.5, training_municipalities=None):
     od = od.copy()
 
     validate_od_sector_probabilities(od)
+
+    # Municipalities the ENOE sample does not cover are scored as "otro" (ENOE's level for Jalisco outside the
+    # sampled metro municipalities); the OD row keeps its real municipality in ``municipio``.
+    od["municipio_scored"] = od["municipio"].astype("string")
+    if training_municipalities is not None:
+        unsampled = ~od["municipio"].isin(set(training_municipalities) | {"otro", NO_ESPECIFICADO})
+        od.loc[unsampled, "municipio_scored"] = "otro"
+    scoring_data = od.drop(columns=["municipio"]).rename(columns={"municipio_scored": "municipio"})
 
     missing_education = identify_missing_category(od["escolaridad"])
     use_with_education = ~missing_education
@@ -356,10 +363,10 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
     informal_joint_columns = []
     formal_joint_columns = []
 
-    assert_known_levels(prepare_informality_features(od, [column for column in with_education_features if column != "sector"]))
+    assert_known_levels(prepare_informality_features(scoring_data, [column for column in with_education_features if column != "sector"]))
 
     for sector_class in SECTOR_CLASSES:
-        scenario_data = od.copy()
+        scenario_data = scoring_data.copy()
         scenario_data["sector"] = sector_class
 
         conditional_probability = np.full(len(od), np.nan)
