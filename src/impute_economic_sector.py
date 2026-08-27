@@ -11,7 +11,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
@@ -281,6 +281,7 @@ def refit_probabilistic_sector_model(model, od, sector_features=OD_SECTOR_FEATUR
 
     final_model = clone(model)
     final_model.fit(X, y, classifier__sample_weight=sample_weights)
+    attach_training_level_shares(final_model, X, sample_weights)
 
     return final_model, training_data
 
@@ -300,6 +301,7 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
     od["sector_fue_imputado"] = unknown_sector
     od["sector_model_used"] = pd.Series("observed", index=od.index, dtype="string")
     od["sector_prediction_confidence"] = np.nan
+    od["sector_marginalized_features"] = pd.Series("", index=od.index, dtype="string")
 
     for sector_class in SECTOR_CLASSES:
         probability_column = f"prob_sector_{sector_class}"
@@ -309,9 +311,10 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
     if use_with_education.any():
         X_with_education = prepare_sector_features(od.loc[use_with_education], with_education_features)
         assert_known_levels(X_with_education)
-        predictions_with_education = model_with_education.predict(X_with_education)
-        probabilities_with_education = normalize_predicted_probabilities(model_with_education.predict_proba(X_with_education))
+        probabilities_with_education, marginalized_with_education = predict_proba_marginalizing(model_with_education, X_with_education)
         classes_with_education = model_with_education.named_steps["classifier"].classes_
+        predictions_with_education = classes_with_education[probabilities_with_education.argmax(axis=1)]
+        od.loc[use_with_education, "sector_marginalized_features"] = marginalized_with_education.to_numpy()
 
         od.loc[use_with_education, "sector_imputado"] = predictions_with_education
         od.loc[use_with_education, "sector_final"] = predictions_with_education
@@ -324,9 +327,10 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
     if use_without_education.any():
         X_without_education = prepare_sector_features(od.loc[use_without_education], without_education_features)
         assert_known_levels(X_without_education)
-        predictions_without_education = model_without_education.predict(X_without_education)
-        probabilities_without_education = normalize_predicted_probabilities(model_without_education.predict_proba(X_without_education))
+        probabilities_without_education, marginalized_without_education = predict_proba_marginalizing(model_without_education, X_without_education)
         classes_without_education = model_without_education.named_steps["classifier"].classes_
+        predictions_without_education = classes_without_education[probabilities_without_education.argmax(axis=1)]
+        od.loc[use_without_education, "sector_marginalized_features"] = marginalized_without_education.to_numpy()
 
         od.loc[use_without_education, "sector_imputado"] = predictions_without_education
         od.loc[use_without_education, "sector_final"] = predictions_without_education

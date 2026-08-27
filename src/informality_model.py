@@ -12,7 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
@@ -24,8 +24,13 @@ ENOE_HOUSEHOLD_COLUMNS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel", "n_h
 def prepare_informality_features(dataframe, features):
     return prepare_model_features(dataframe, features)
 
-def predict_informal_probability(model, X):
-    probabilities = normalize_predicted_probabilities(model.predict_proba(X))
+def predict_informal_probability(model, X, marginalize_unsupported=False):
+    """P(informal) from a fitted pipeline; with ``marginalize_unsupported`` levels without training support are
+    marginalized (see ``common.predict_proba_marginalizing``), otherwise ``predict_proba`` is used as is."""
+    if marginalize_unsupported:
+        probabilities, _ = predict_proba_marginalizing(model, X)
+    else:
+        probabilities = normalize_predicted_probabilities(model.predict_proba(X))
     classes = model.named_steps["classifier"].classes_
     informal_index = np.where(classes == 1)[0]
 
@@ -320,6 +325,7 @@ def refit_informality_model(model, enoe, features=INFORMALITY_FEATURES):
 
     final_model = clone(model)
     final_model.fit(X, y, classifier__sample_weight=sample_weights)
+    attach_training_level_shares(final_model, X, sample_weights)
 
     return final_model, training_data
 
@@ -365,6 +371,13 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
     od.loc[use_with_education, "informality_model_used"] = "with_education"
     od.loc[use_without_education, "informality_model_used"] = "without_education"
 
+    od["informality_marginalized_features"] = pd.Series("", index=od.index, dtype="string")
+    for use_mask, model, features in ((use_with_education, model_with_education, with_education_features), (use_without_education, model_without_education, without_education_features)):
+        if use_mask.any():
+            scenario_features = [column for column in features if column != "sector"]
+            _, marginalized = predict_proba_marginalizing(model, prepare_informality_features(scoring_data.loc[use_mask].assign(sector=SECTOR_CLASSES[0]), features)[scenario_features + ["sector"]])
+            od.loc[use_mask, "informality_marginalized_features"] = marginalized.to_numpy()
+
     informal_joint_columns = []
     formal_joint_columns = []
 
@@ -378,12 +391,12 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
 
         if use_with_education.any():
             X_with_education = prepare_informality_features(scenario_data.loc[use_with_education], with_education_features)
-            probability_with_education, _ = predict_informal_probability(model_with_education, X_with_education)
+            probability_with_education, _ = predict_informal_probability(model_with_education, X_with_education, marginalize_unsupported=True)
             conditional_probability[np.flatnonzero(use_with_education.to_numpy())] = probability_with_education
 
         if use_without_education.any():
             X_without_education = prepare_informality_features(scenario_data.loc[use_without_education], without_education_features)
-            probability_without_education, _ = predict_informal_probability(model_without_education, X_without_education)
+            probability_without_education, _ = predict_informal_probability(model_without_education, X_without_education, marginalize_unsupported=True)
             conditional_probability[np.flatnonzero(use_without_education.to_numpy())] = probability_without_education
 
         if np.isnan(conditional_probability).any():
