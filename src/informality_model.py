@@ -12,7 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
@@ -273,26 +273,6 @@ def get_best_informality_model(model_summary, best_models):
 
 
 # Calibration
-def calculate_calibration_table(y_true, probabilities, sample_weights, n_bins=10):
-    calibration = pd.DataFrame({
-        "informal": np.asarray(y_true, dtype=float),
-        "probability": np.asarray(probabilities, dtype=float),
-        "weight": np.asarray(sample_weights, dtype=float)
-    })
-
-    calibration["bin"] = pd.cut(calibration["probability"], bins=np.linspace(0, 1, n_bins + 1), include_lowest=True)
-    calibration["weighted_informal"] = calibration["weight"] * calibration["informal"]
-    calibration["weighted_probability"] = calibration["weight"] * calibration["probability"]
-
-    calibration_table = calibration.groupby("bin", observed=True).agg(sample_workers=("informal", "size"), weighted_population=("weight", "sum"), weighted_informal=("weighted_informal", "sum"), weighted_probability=("weighted_probability", "sum")).reset_index()
-
-    calibration_table["observed_rate"] = calibration_table["weighted_informal"] / calibration_table["weighted_population"]
-    calibration_table["predicted_probability"] = calibration_table["weighted_probability"] / calibration_table["weighted_population"]
-
-    return calibration_table
-
-
-
 # Held-out evaluation
 def evaluate_informality_model(model, validation_data, features=INFORMALITY_FEATURES, n_calibration_bins=10):
     X = prepare_informality_features(validation_data, features)
@@ -320,6 +300,9 @@ def evaluate_informality_model(model, validation_data, features=INFORMALITY_FEAT
         "predicted_informality_rate": [predicted_rate],
         "calibration_gap_pp": [(predicted_rate - observed_rate) * 100]
     })
+    for name, value in calibration_metrics(y_true, informal_probability, sample_weights, n_bins=n_calibration_bins).items():
+        if name != "calibration_gap_pp":
+            metrics[name] = [value]
 
     weighted_confusion = confusion_matrix(y_true, predictions, labels=[0, 1], sample_weight=sample_weights)
     confusion = pd.DataFrame(weighted_confusion, index=["formal", "informal"], columns=["formal", "informal"])
@@ -331,14 +314,34 @@ def evaluate_informality_model(model, validation_data, features=INFORMALITY_FEAT
 
 
 # Final ENOE models
-def refit_informality_model(model, enoe, features=INFORMALITY_FEATURES):
+def refit_informality_model(model, enoe, features=INFORMALITY_FEATURES, calibrate=False, cv_splits=5, random_state=42):
+    """Refit the selected pipeline on ``enoe``; with ``calibrate=True`` wrap it in an isotonic map learned from
+    household-grouped out-of-fold predictions (see ``common.fit_isotonic_calibrator``)."""
     X, y, sample_weights, groups, training_data = prepare_enoe_informality_training_data(enoe, features=features)
 
     final_model = clone(model)
     final_model.fit(X, y, classifier__sample_weight=sample_weights)
     attach_training_level_shares(final_model, X, sample_weights)
+    if calibrate:
+        final_model = fit_isotonic_calibrator(final_model, X, y, sample_weights, groups, cv_splits=cv_splits, random_state=random_state)
 
     return final_model, training_data
+
+def calibrate_informality_model(model, enoe, features=INFORMALITY_FEATURES, cv_splits=5, random_state=42):
+    """Isotonic-calibrated version of an already fitted pipeline, using out-of-fold predictions on ``enoe``."""
+    X, y, sample_weights, groups, _ = prepare_enoe_informality_training_data(enoe, features=features)
+
+    return fit_isotonic_calibrator(model, X, y, sample_weights, groups, cv_splits=cv_splits, random_state=random_state)
+
+def compare_informality_models(models, validation_data, features=INFORMALITY_FEATURES, n_calibration_bins=10):
+    """Held-out metrics side by side for a ``{label: model}`` dict (e.g. uncalibrated vs isotonic)."""
+    rows, tables = [], {}
+    for label, model in models.items():
+        metrics, _, table = evaluate_informality_model(model, validation_data, features=features, n_calibration_bins=n_calibration_bins)
+        rows.append(metrics.iloc[0].rename(label))
+        tables[label] = table
+
+    return pd.DataFrame(rows), tables
 
 
 

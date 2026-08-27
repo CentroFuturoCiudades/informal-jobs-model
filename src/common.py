@@ -234,3 +234,110 @@ def select_one_se(results):
     table.loc[selected, "selected"] = True
 
     return table
+
+
+# Calibration (review item 2.3)
+def calculate_calibration_table(y_true, probabilities, sample_weights, n_bins=10):
+    """Weighted reliability table: observed rate vs mean predicted probability per probability bin."""
+    calibration = pd.DataFrame({
+        "outcome": np.asarray(y_true, dtype=float),
+        "probability": np.asarray(probabilities, dtype=float),
+        "weight": np.asarray(sample_weights, dtype=float),
+    })
+    calibration["bin"] = pd.cut(calibration["probability"], bins=np.linspace(0, 1, n_bins + 1), include_lowest=True)
+    calibration["weighted_outcome"] = calibration["weight"] * calibration["outcome"]
+    calibration["weighted_probability"] = calibration["weight"] * calibration["probability"]
+    table = calibration.groupby("bin", observed=True).agg(sample_workers=("outcome", "size"), weighted_population=("weight", "sum"), weighted_informal=("weighted_outcome", "sum"), weighted_probability=("weighted_probability", "sum")).reset_index()
+    table["observed_rate"] = table["weighted_informal"] / table["weighted_population"]
+    table["predicted_probability"] = table["weighted_probability"] / table["weighted_population"]
+
+    return table
+
+def calibration_metrics(y_true, probabilities, sample_weights, n_bins=10):
+    """Population-weighted calibration summary for a binary probability.
+
+    - ``ece``: expected calibration error, Σ_bins (w_bin / W) · |observed − predicted| over ``n_bins`` equal-width bins
+    - ``calibration_gap_pp``: predicted − observed aggregate rate, in percentage points (calibration in the large)
+    - ``calibration_slope`` / ``calibration_intercept``: weighted logistic regression of the outcome on logit(p̂)
+      (slope 1, intercept 0 = perfect; slope < 1 = over-confident, > 1 = under-confident)
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    y = np.asarray(y_true, dtype=float)
+    p = np.clip(np.asarray(probabilities, dtype=float), 1e-6, 1 - 1e-6)
+    w = np.asarray(sample_weights, dtype=float)
+    table = calculate_calibration_table(y, p, w, n_bins=n_bins)
+    ece = float((table["weighted_population"] / table["weighted_population"].sum() * (table["observed_rate"] - table["predicted_probability"]).abs()).sum())
+    logit = np.log(p / (1 - p)).reshape(-1, 1)
+    fit = LogisticRegression(C=1e6, max_iter=1000).fit(logit, y.astype(int), sample_weight=w)
+
+    return {
+        "ece": ece,
+        "calibration_gap_pp": float((np.average(p, weights=w) - np.average(y, weights=w)) * 100),
+        "calibration_slope": float(fit.coef_[0, 0]),
+        "calibration_intercept": float(fit.intercept_[0]),
+    }
+
+
+class IsotonicCalibratedPipeline:
+    """A fitted sklearn ``Pipeline`` whose positive-class probability is passed through an isotonic map.
+
+    Exposes the members the pipeline code relies on (``named_steps``, ``predict_proba``, ``predict``,
+    ``training_level_shares_``) so it can be used wherever the uncalibrated pipeline is used, including
+    :func:`predict_proba_marginalizing`. Picklable (module-level class).
+    """
+
+    def __init__(self, pipeline, calibrator, positive_class=1):
+        self.pipeline = pipeline
+        self.calibrator = calibrator
+        self.positive_class = positive_class
+        if hasattr(pipeline, "training_level_shares_"):
+            self.training_level_shares_ = pipeline.training_level_shares_
+
+    @property
+    def named_steps(self):
+        return self.pipeline.named_steps
+
+    @property
+    def classes_(self):
+        return self.pipeline.named_steps["classifier"].classes_
+
+    def predict_proba(self, X):
+        raw = self.pipeline.predict_proba(X)
+        positive = int(np.where(self.classes_ == self.positive_class)[0][0])
+        calibrated = np.clip(self.calibrator.predict(raw[:, positive]), 0.0, 1.0)
+        probabilities = np.empty_like(raw)
+        probabilities[:, positive] = calibrated
+        probabilities[:, 1 - positive] = 1.0 - calibrated
+
+        return probabilities
+
+    def predict(self, X):
+        return self.classes_[self.predict_proba(X).argmax(axis=1)]
+
+
+def fit_isotonic_calibrator(model, X, y, sample_weights, groups, cv_splits=5, random_state=42, positive_class=1):
+    """Isotonic recalibration of a fitted pipeline using **out-of-fold** predictions from a household-grouped CV.
+
+    The pipeline itself is left untouched (it was fitted on all of ``X``); the isotonic map is learned from
+    predictions each row received from a model that had not seen its household, so the map is not optimistic.
+    """
+    from sklearn.base import clone
+    from sklearn.isotonic import IsotonicRegression
+    from sklearn.model_selection import StratifiedGroupKFold
+
+    X = X.reset_index(drop=True)
+    y = pd.Series(np.asarray(y)).reset_index(drop=True)
+    sample_weights = pd.Series(np.asarray(sample_weights, dtype=float))
+    groups = pd.Series(np.asarray(groups)).reset_index(drop=True)
+    out_of_fold = np.full(len(X), np.nan)
+    splitter = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
+    for train_index, validation_index in splitter.split(X, y, groups=groups):
+        fold_model = clone(model).fit(X.iloc[train_index], y.iloc[train_index], classifier__sample_weight=sample_weights.iloc[train_index])
+        classes = fold_model.named_steps["classifier"].classes_
+        positive = int(np.where(classes == positive_class)[0][0])
+        out_of_fold[validation_index] = fold_model.predict_proba(X.iloc[validation_index])[:, positive]
+    assert not np.isnan(out_of_fold).any()
+    calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(out_of_fold, (y == positive_class).astype(float), sample_weight=sample_weights)
+
+    return IsotonicCalibratedPipeline(model, calibrator, positive_class=positive_class)

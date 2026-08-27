@@ -11,7 +11,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
@@ -285,6 +285,26 @@ def evaluate_probabilistic_sector_model(model, validation_data, sector_features=
     return metrics, class_metrics, confusion, distribution_comparison
 
 # Final model
+def calculate_sector_calibration(model, validation_data, sector_features=OD_SECTOR_FEATURES, n_bins=10):
+    """Calibration of the sector probabilities on held-out data, one-vs-rest per class.
+
+    Returns ``(in_the_large, reliability)``: per-class predicted share vs observed share (weighted) with ECE, and
+    the per-class reliability tables (``sector`` column) for plotting.
+    """
+    X = prepare_sector_features(validation_data, sector_features)
+    probabilities = normalize_predicted_probabilities(model.predict_proba(X))
+    classes = list(model.named_steps["classifier"].classes_)
+    weights = validation_data["expansion_factor"].astype(float).to_numpy()
+    rows, tables = [], []
+    for index, sector_class in enumerate(classes):
+        outcome = (validation_data["sector"].to_numpy() == sector_class).astype(float)
+        metrics = calibration_metrics(outcome, probabilities[:, index], weights, n_bins=n_bins)
+        rows.append({"sector": sector_class, "observed_share": np.average(outcome, weights=weights), "predicted_share": np.average(probabilities[:, index], weights=weights), "gap_pp": metrics["calibration_gap_pp"], "ece": metrics["ece"], "calibration_slope": metrics["calibration_slope"]})
+        tables.append(calculate_calibration_table(outcome, probabilities[:, index], weights, n_bins=n_bins).assign(sector=sector_class))
+
+    return pd.DataFrame(rows), pd.concat(tables, ignore_index=True)
+
+# Final models
 def refit_probabilistic_sector_model(model, od, sector_features=OD_SECTOR_FEATURES):
     X, y, sample_weights, groups, training_data = prepare_od_probabilistic_sector_training_data(od, sector_features=sector_features)
 
