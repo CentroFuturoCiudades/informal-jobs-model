@@ -29,11 +29,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Verify:** ENOE `gobierno_otro_agricultura` share in the common geography drops from ~5.6% to ~4.75% (OD: 4.07%).
 - **Done (2026-08-27):** 9 → `servicios_transporte`, 2 and 3 → `manufactura_construccion`. The whole sector mapping (ENOE `scian` and OD `giro_empresa`) now lives in `src/mappings/sector.yaml` with INEGI labels, old values as comments and a changelog; loaded via `src.load_mapping("sector")`. Effect on the ENOE training set (Jalisco): `gobierno_otro_agricultura` 14.06% → 13.12%, `servicios_transporte` +0.63 pp, `manufactura_construccion` +0.31 pp.
 
-### 1.2 `eda == 98` is "age unspecified", not 98 years
+### 1.2 `eda == 98` is "age unspecified", not 98 years ✅ done
 - **Where:** `harmonize_enoe_age` (`harmonize:77`); admitted by `ENOE_MAX_AGE = 98` in stage 1.
 - **What/why:** INEGI codes 98 = unspecified (12+), 99 = unspecified (0–11). Two workers currently get `edad_num = 98` (a numeric model feature) and `edad_cat = 65_y_mas`. Under `employment_filter="p1"` code 99 would leak too.
 - **Fix:** `enoe["edad_num"] = enoe["eda"].where(enoe["eda"] < 98)`; `pd.cut` on NA yields `no_especificado`. Keep `ENOE_MAX_AGE = 98` in the universe filter (INEGI semantics) but comment why.
 - **Verify:** `enoe_harmonized.edad_num.max() <= 97`; two rows in `edad_cat == no_especificado`.
+- **Done (2026-08-27):** `edad_num = eda.where(eda < 98)`; 2 workers now have `edad_cat = no_especificado`; `edad_num.max() = 97`.
 
 ### 1.3 Who counts as an OD worker — 194 self-reported non-workers **[D]**
 - **Where:** `generate_od_dataframe` (`generate:86`) filter on `trabajo_semana_pasada`.

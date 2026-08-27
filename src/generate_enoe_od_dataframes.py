@@ -20,7 +20,9 @@ ENOE_RENAMES = {"fac_tri": "survey_weight", "est": "survey_stratum", "upm": "sur
 ENOE_OUTPUT_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "survey_weight", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"]
 ENOE_EMPLOYMENT_FILTERS = ("clase2", "p1")
 # Analytical universe for the "clase2" filter: definitive interview, habitual/new residents, age 12+ (INEGI uses 15+;
-# 12 keeps the working 12-14 year olds that the OD survey also records). eda == 98 is "age unspecified (12+)".
+# 12 keeps the working 12-14 year olds that the OD survey also records). The upper bound 98 follows INEGI's own
+# filter EDA in [15, 98]: 98 is the sentinel "age unspecified (12+)", kept in the universe and turned into a missing
+# age by harmonize_enoe_age.
 ENOE_MIN_AGE, ENOE_MAX_AGE = 12, 98
 
 # OD

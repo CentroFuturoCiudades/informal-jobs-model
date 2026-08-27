@@ -100,9 +100,11 @@ def harmonize_od_occupation(od):
     return od
 
 # AGE
+ENOE_AGE_UNSPECIFIED = 98  # INEGI: 98 = "no especificada (12 años y más)", 99 = "no especificada (0-11 años)"
+
 def harmonize_enoe_age(enoe):
     enoe = enoe.copy()
-    enoe["edad_num"] = enoe["eda"].copy()
+    enoe["edad_num"] = enoe["eda"].where(enoe["eda"] < ENOE_AGE_UNSPECIFIED)
     enoe["edad_cat"] = pd.cut(enoe["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return enoe
