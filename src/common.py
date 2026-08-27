@@ -136,7 +136,7 @@ def attach_training_level_shares(model, X, sample_weights):
 
     return model
 
-def predict_proba_marginalizing(model, X):
+def predict_proba_marginalizing(model, X, level_subsets=None):
     """``model.predict_proba`` where a categorical value with no training support is marginalized out.
 
     With one-hot encoding a tree ensemble routes an all-zero block (a declared level that never occurred in
@@ -145,12 +145,22 @@ def predict_proba_marginalizing(model, X):
     supported level of *f* and average with the training share of each level — the same treatment the pipeline
     gives to an unknown sector. Rows with several unsupported features are expanded over all combinations.
 
+    ``level_subsets`` (feature -> list of levels) restricts the levels a feature is averaged over (shares are
+    renormalized within the subset), e.g. an unsampled metro municipality averaged over the sampled metro ones only.
+
     Returns ``(probabilities, marginalized_features)`` where the second element is a per-row string listing the
     features that were marginalized ("" if none).
     """
     shares = getattr(model, "training_level_shares_", None)
     if not shares:
         raise ValueError("The model has no training_level_shares_; refit it with attach_training_level_shares.")
+    if level_subsets:
+        shares = dict(shares)
+        for feature, levels in level_subsets.items():
+            subset = shares[feature].reindex(levels).dropna()
+            if subset.sum() <= 0:
+                raise ValueError(f"No training support for the requested {feature} levels {list(levels)}")
+            shares[feature] = pd.Series(0.0, index=shares[feature].index).add(subset / subset.sum(), fill_value=0.0)
     X = X.reset_index(drop=True)
     features = [column for column in X.columns if column in shares]
     n_classes = len(model.named_steps["classifier"].classes_)

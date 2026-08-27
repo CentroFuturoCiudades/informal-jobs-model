@@ -24,11 +24,11 @@ ENOE_HOUSEHOLD_COLUMNS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel", "n_h
 def prepare_informality_features(dataframe, features):
     return prepare_model_features(dataframe, features)
 
-def predict_informal_probability(model, X, marginalize_unsupported=False):
+def predict_informal_probability(model, X, marginalize_unsupported=False, level_subsets=None):
     """P(informal) from a fitted pipeline; with ``marginalize_unsupported`` levels without training support are
     marginalized (see ``common.predict_proba_marginalizing``), otherwise ``predict_proba`` is used as is."""
     if marginalize_unsupported:
-        probabilities, _ = predict_proba_marginalizing(model, X)
+        probabilities, _ = predict_proba_marginalizing(model, X, level_subsets=level_subsets)
     else:
         probabilities = normalize_predicted_probabilities(model.predict_proba(X))
     classes = model.named_steps["classifier"].classes_
@@ -41,26 +41,28 @@ def predict_informal_probability(model, X, marginalize_unsupported=False):
 
 # Geography and diagnostics
 def select_common_informality_population(enoe, od):
-    """ENOE training population on the metro municipalities sampled by both surveys (same rule as stage 3).
+    """Training and benchmark populations for the informality model.
 
-    Returns the ENOE frame restricted to the common municipalities (with a valid label and sector), the set of
-    municipalities ENOE sampled, and a summary with the OD workers that fall outside that set (they are scored with
-    ``municipio = "otro"`` by :func:`predict_od_informality`).
+    Training uses **all** ENOE workers in the state with a valid label: municipalities outside the metro area enter
+    as ``municipio = "otro"`` and the model separates the two regimes through that feature (review item 1.13; on the
+    metro held-out fold this lowers log loss slightly and leaves the OD estimate unchanged). The benchmark the OD
+    estimate is compared with is restricted to the metro municipalities sampled by both surveys (same rule as stage
+    3). OD workers in metro municipalities ENOE did not sample are scored by averaging over the sampled metro
+    municipalities (never as ``otro``, which here means non-metro Jalisco).
+
+    Returns ``(training_population, benchmark_population, training_municipalities, geography_summary)``.
     """
     enoe_common, _, geography_summary = filter_common_geography(enoe, od)
     training_municipalities = set(geography_summary.loc[geography_summary["enoe"], "municipio"])
 
-    # Workers with an unspecified sector stay in the population: sector = no_especificado is a declared level
-    # (the OD side never scores it because sector is marginalized over the four classes) and they are 100% informal
-    # in 2023t1, so dropping them would bias the benchmark and the training set (review item 1.11).
-    training_population = enoe_common[enoe_common["informal"].notna()].copy()
-    training_population = training_population.reset_index(drop=True)
+    training_population = enoe[enoe["informal"].notna()].reset_index(drop=True).copy()
+    benchmark_population = enoe_common[enoe_common["informal"].notna()].reset_index(drop=True).copy()
 
     od_weights = od.groupby("municipio")["expansion_factor"].sum()
     geography_summary["od_workers"] = geography_summary["municipio"].map(od.groupby("municipio").size()).fillna(0).astype(int)
     geography_summary["od_weighted_share"] = geography_summary["municipio"].map(od_weights / od_weights.sum()).fillna(0.0)
 
-    return training_population, training_municipalities, geography_summary
+    return training_population, benchmark_population, training_municipalities, geography_summary
 
 def compare_informality_feature_missingness(enoe, od, columns):
     results = []
@@ -355,12 +357,15 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
 
     validate_od_sector_probabilities(od)
 
-    # Municipalities the ENOE sample does not cover are scored as "otro" (ENOE's level for Jalisco outside the
-    # sampled metro municipalities); the OD row keeps its real municipality in ``municipio``.
+    # Metro municipalities the ENOE sample does not cover are scored by marginalizing over the sampled metro
+    # municipalities (their value is set to no_especificado, which has no training support, and the marginalization
+    # is restricted to ``training_municipalities``). "otro" would mean non-metro Jalisco and is not used for them.
     od["municipio_scored"] = od["municipio"].astype("string")
+    level_subsets = None
     if training_municipalities is not None:
         unsampled = ~od["municipio"].isin(set(training_municipalities) | {"otro", NO_ESPECIFICADO})
-        od.loc[unsampled, "municipio_scored"] = "otro"
+        od.loc[unsampled, "municipio_scored"] = NO_ESPECIFICADO
+        level_subsets = {"municipio": sorted(training_municipalities)}
     scoring_data = od.drop(columns=["municipio"]).rename(columns={"municipio_scored": "municipio"})
 
     missing_education = identify_missing_category(od["escolaridad"])
@@ -375,7 +380,7 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
     for use_mask, model, features in ((use_with_education, model_with_education, with_education_features), (use_without_education, model_without_education, without_education_features)):
         if use_mask.any():
             scenario_features = [column for column in features if column != "sector"]
-            _, marginalized = predict_proba_marginalizing(model, prepare_informality_features(scoring_data.loc[use_mask].assign(sector=SECTOR_CLASSES[0]), features)[scenario_features + ["sector"]])
+            _, marginalized = predict_proba_marginalizing(model, prepare_informality_features(scoring_data.loc[use_mask].assign(sector=SECTOR_CLASSES[0]), features)[scenario_features + ["sector"]], level_subsets=level_subsets)
             od.loc[use_mask, "informality_marginalized_features"] = marginalized.to_numpy()
 
     informal_joint_columns = []
@@ -391,12 +396,12 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
 
         if use_with_education.any():
             X_with_education = prepare_informality_features(scenario_data.loc[use_with_education], with_education_features)
-            probability_with_education, _ = predict_informal_probability(model_with_education, X_with_education, marginalize_unsupported=True)
+            probability_with_education, _ = predict_informal_probability(model_with_education, X_with_education, marginalize_unsupported=True, level_subsets=level_subsets)
             conditional_probability[np.flatnonzero(use_with_education.to_numpy())] = probability_with_education
 
         if use_without_education.any():
             X_without_education = prepare_informality_features(scenario_data.loc[use_without_education], without_education_features)
-            probability_without_education, _ = predict_informal_probability(model_without_education, X_without_education, marginalize_unsupported=True)
+            probability_without_education, _ = predict_informal_probability(model_without_education, X_without_education, marginalize_unsupported=True, level_subsets=level_subsets)
             conditional_probability[np.flatnonzero(use_without_education.to_numpy())] = probability_without_education
 
         if np.isnan(conditional_probability).any():
