@@ -49,7 +49,7 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Fix:** ENOE `4 → "sin_pago"`. OD: after 1.3(a) the OD `otro` group is empty and the four labels map to `no_especificado`; under 1.3(b) map them to `"otra_condicion"` so they stay a distinct, honest level. Update README §4.2 category list and notebook 02 markdown.
 - **Verify:** no shared `otro` level; stage-3 `ocupacion` comparison figure re-generated.
 
-### 1.5 Categorical levels unseen at fit time are silently zeroed
+### 1.5 Categorical levels unseen at fit time are silently zeroed ✅ done
 - **Where:** `OneHotEncoder(handle_unknown="ignore")` at `impute_economic_sector.py:139,142` and `informality_model.py:163,166`.
 - **What/why:** `handle_unknown="ignore"` emits an all-zero block — a point corresponding to *no* category — for any level absent from training. Sector model: `ocupacion_raw` unseen levels + `parentesco = no_especificado` → 327 imputed workers with visibly shifted probabilities (mean `prob_comercio` 0.47 vs 0.24). Informality model: `no_especificado` never occurs in ENOE for `ocupacion`, `estado_civil`, `parentesco` (2,023 OD rows), plus the unseen municipalities (1.6).
 - **Fix:** build the encoder with explicit `categories=` = union of the levels observed in *both* surveys plus `no_especificado` for every categorical feature (compute the lists once in `src/common.py` from the harmonized frames and store them in the joblib bundle). Add a predict-time check that reports (or raises on) values outside the fitted categories. With explicit categories, `no_especificado` becomes a real, learnable (all-zero in training) column rather than an out-of-support point.

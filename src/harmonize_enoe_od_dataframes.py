@@ -15,10 +15,9 @@ def load_mapping(name):
         return yaml.safe_load(handle)
 
 
-NO_ESPECIFICADO = "no_especificado"
+from .common import AGE_LABELS, NO_ESPECIFICADO
 
 AGE_BINS = [0, 3, 5, 6, 8, 12, 15, 18, 25, 50, 60, 65, np.inf]
-AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_49", "50_59", "60_64", "65_y_mas"]
 
 def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
     """Fail loudly when a source category is neither mapped nor explicitly allowed to fall through.

@@ -11,51 +11,17 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
-SECTOR_CLASSES = ["comercio", "gobierno_otro_agricultura", "manufactura_construccion", "servicios_transporte"]
+
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 ENOE_HOUSEHOLD_COLUMNS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel", "n_hog", "h_mud"]
 
 # General helpers
-def identify_missing_category(series):
-    text = series.astype("string").str.strip().str.lower()
-
-    return series.isna() | text.eq("").fillna(False) | text.eq("no_especificado").fillna(False)
-
-def normalize_sample_weights(sample_weights):
-    sample_weights = sample_weights.astype(float)
-
-    return sample_weights / sample_weights.mean()
-
-def normalize_predicted_probabilities(probabilities, tolerance=1e-8):
-    probabilities = np.asarray(probabilities, dtype=float)
-    if not np.isfinite(probabilities).all():
-        raise ValueError("Predicted probabilities contain NaN or infinite values.")
-
-    probability_sums = probabilities.sum(axis=1, keepdims=True)
-    if np.any(probability_sums <= 0):
-        raise ValueError("At least one predicted probability row has a non-positive sum.")
-
-    maximum_error = np.max(np.abs(probability_sums.ravel() - 1.0))
-    if maximum_error > tolerance:
-        raise ValueError(f"Predicted probabilities do not sum to one. Maximum error: {maximum_error:.3e}")
-
-    return probabilities / probability_sums
 
 def prepare_informality_features(dataframe, features):
-    X = dataframe[features].copy()
-
-    numerical_features = [column for column in features if column == "edad_num"]
-    categorical_features = [column for column in features if column not in numerical_features]
-
-    for column in numerical_features:
-        X[column] = pd.to_numeric(X[column], errors="coerce")
-
-    for column in categorical_features:
-        X[column] = X[column].astype("string").str.strip().replace("", "no_especificado").fillna("no_especificado").astype(object)
-
-    return X
+    return prepare_model_features(dataframe, features)
 
 def predict_informal_probability(model, X):
     probabilities = normalize_predicted_probabilities(model.predict_proba(X))
@@ -156,14 +122,15 @@ def prepare_enoe_informality_training_data(enoe, features=INFORMALITY_FEATURES):
 
 # Models
 def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
-    numerical_features = [column for column in features if column == "edad_num"]
-    categorical_features = [column for column in features if column not in numerical_features]
+    numerical_features, categorical_features = split_feature_types(features)
+    category_levels = build_category_levels()
+    categories = [category_levels[column] for column in categorical_features]
 
     linear_numerical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())])
-    linear_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(handle_unknown="ignore"))])
+    linear_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error"))])
 
     tree_numerical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="median"))])
-    tree_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False))])
+    tree_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error", sparse_output=False))])
 
     linear_preprocessor = ColumnTransformer([("numerical", linear_numerical_preprocessor, numerical_features), ("categorical", linear_categorical_preprocessor, categorical_features)])
     tree_preprocessor = ColumnTransformer([("numerical", tree_numerical_preprocessor, numerical_features), ("categorical", tree_categorical_preprocessor, categorical_features)])
@@ -388,6 +355,8 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
 
     informal_joint_columns = []
     formal_joint_columns = []
+
+    assert_known_levels(prepare_informality_features(od, [column for column in with_education_features if column != "sector"]))
 
     for sector_class in SECTOR_CLASSES:
         scenario_data = od.copy()

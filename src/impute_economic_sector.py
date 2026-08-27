@@ -11,8 +11,9 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
-SECTOR_CLASSES = ["comercio", "gobierno_otro_agricultura", "manufactura_construccion", "servicios_transporte"]
+
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
 OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
 
@@ -79,44 +80,11 @@ def split_od_sector_known_data(od, n_splits=5, test_fold=0, random_state=42):
     return training_data, test_data
 
 # Feature preparation
-def normalize_sample_weights(sample_weights):
-    sample_weights = sample_weights.astype(float)
 
-    return sample_weights / sample_weights.mean()
 
-def normalize_predicted_probabilities(probabilities, tolerance=1e-8):
-    probabilities = np.asarray(probabilities, dtype=float)
-    if not np.isfinite(probabilities).all():
-        raise ValueError("Predicted probabilities contain NaN or infinite values.")
-
-    probability_sums = probabilities.sum(axis=1, keepdims=True)
-    if np.any(probability_sums <= 0):
-        raise ValueError("At least one predicted probability row has a non-positive sum.")
-
-    max_error = np.max(np.abs(probability_sums.ravel() - 1.0))
-    if max_error > tolerance:
-        raise ValueError(f"Predicted probabilities do not sum to one. Maximum error: {max_error:.3e}")
-
-    return probabilities / probability_sums
-
-def identify_missing_category(series):
-    text = series.astype("string").str.strip().str.lower()
-
-    return series.isna() | text.eq("").fillna(False) | text.eq("no_especificado").fillna(False)
 
 def prepare_sector_features(dataframe, sector_features):
-    X = dataframe[sector_features].copy()
-
-    numerical_features = [column for column in sector_features if column == "edad_num"]
-    categorical_features = [column for column in sector_features if column not in numerical_features]
-
-    for column in numerical_features:
-        X[column] = pd.to_numeric(X[column], errors="coerce")
-
-    for column in categorical_features:
-        X[column] = X[column].astype("string").str.strip().replace("", "no_especificado").fillna("no_especificado").astype(object)
-
-    return X
+    return prepare_model_features(dataframe, sector_features)
 
 def prepare_od_probabilistic_sector_training_data(od, sector_features=OD_SECTOR_FEATURES):
     training_data = od[~od["sector_desconocido"]].copy()
@@ -132,14 +100,15 @@ def prepare_od_probabilistic_sector_training_data(od, sector_features=OD_SECTOR_
 
 # Models
 def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random_state=42):
-    numerical_features = [column for column in sector_features if column == "edad_num"]
-    categorical_features = [column for column in sector_features if column not in numerical_features]
+    numerical_features, categorical_features = split_feature_types(sector_features)
+    category_levels = build_category_levels()
+    categories = [category_levels[column] for column in categorical_features]
 
     linear_numerical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())])
-    linear_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(handle_unknown="ignore"))])
+    linear_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error"))])
 
     tree_numerical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="median"))])
-    tree_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False))])
+    tree_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error", sparse_output=False))])
 
     linear_preprocessor = ColumnTransformer([("numerical", linear_numerical_preprocessor, numerical_features), ("categorical", linear_categorical_preprocessor, categorical_features)])
     tree_preprocessor = ColumnTransformer([("numerical", tree_numerical_preprocessor, numerical_features), ("categorical", tree_categorical_preprocessor, categorical_features)])
@@ -339,6 +308,7 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
 
     if use_with_education.any():
         X_with_education = prepare_sector_features(od.loc[use_with_education], with_education_features)
+        assert_known_levels(X_with_education)
         predictions_with_education = model_with_education.predict(X_with_education)
         probabilities_with_education = normalize_predicted_probabilities(model_with_education.predict_proba(X_with_education))
         classes_with_education = model_with_education.named_steps["classifier"].classes_
@@ -353,6 +323,7 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
 
     if use_without_education.any():
         X_without_education = prepare_sector_features(od.loc[use_without_education], without_education_features)
+        assert_known_levels(X_without_education)
         predictions_without_education = model_without_education.predict(X_without_education)
         probabilities_without_education = normalize_predicted_probabilities(model_without_education.predict_proba(X_without_education))
         classes_without_education = model_without_education.named_steps["classifier"].classes_
