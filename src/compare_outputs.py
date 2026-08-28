@@ -10,7 +10,7 @@ import pandas as pd
 
 from .common import HARMONIZED_FEATURES
 from .diagnose_enoe_od_dataframes import calculate_weighted_distribution, calculate_weighted_informality_rate
-from .generate_enoe_od_dataframes import ENOE_PERSON_KEYS
+from .generate_enoe_od_dataframes import ENOE_PERSON_KEYS, ENOE_ROW_KEYS
 
 STAGE_FILES = {
     "1": ["enoe_workers", "od_workers"],
@@ -85,11 +85,14 @@ def compare_key_overlap(baseline_dir, new_dir):
     """Row-identity overlap on survey keys, before any harmonization."""
     rows = []
     for name, keys in (("enoe_workers", ENOE_PERSON_KEYS), ("od_workers", OD_KEYS)):
+        keys = list(keys)
         base, new = _read(baseline_dir, name), _read(new_dir, name)
         if base is None or new is None or not set(keys) <= set(base.columns) or not set(keys) <= set(new.columns):
             continue
-        base_keys = set(map(tuple, base[keys].astype("Int64").itertuples(index=False)))
-        new_keys = set(map(tuple, new[keys].astype("Int64").itertuples(index=False)))
+        if name == "enoe_workers" and "period" in base and "period" in new:
+            keys = ["period"] + keys
+        base_keys = set(map(tuple, base[keys].astype(str).itertuples(index=False)))
+        new_keys = set(map(tuple, new[keys].astype(str).itertuples(index=False)))
         rows.append({"file": name, "in_both": len(base_keys & new_keys), "only_base": len(base_keys - new_keys), "only_new": len(new_keys - base_keys)})
     return pd.DataFrame(rows)
 

@@ -18,7 +18,7 @@ from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootst
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
-from .generate_enoe_od_dataframes import ENOE_HOUSEHOLD_KEYS as ENOE_HOUSEHOLD_COLUMNS  # household (not person) key: CV groups
+from .generate_enoe_od_dataframes import ENOE_GROUP_KEYS as ENOE_HOUSEHOLD_COLUMNS  # cross-quarter household key: CV groups and bootstrap clusters
 
 # General helpers
 
@@ -103,6 +103,16 @@ def calculate_enoe_informality_benchmark(enoe):
     })
 
     return benchmark
+
+def calculate_enoe_informality_by_period(enoe):
+    """Weighted informality rate per pooled ENOE quarter (weights were divided by the number of quarters, so the
+    per-quarter weighted population is the quarter's population divided by that number; rates are unaffected)."""
+    rows = []
+    for period, frame in enoe.groupby("period") if "period" in enoe else [("all", enoe)]:
+        weights = frame["survey_weight"].astype(float); informal = frame["informal"].astype(float)
+        rows.append({"period": period, "sample_workers": len(frame), "weighted_informality_rate": (weights * informal).sum() / weights.sum()})
+
+    return pd.DataFrame(rows)
 
 # Train-test split
 def split_enoe_informality_data(enoe, n_splits=5, test_fold=0, random_state=42):

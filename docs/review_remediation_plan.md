@@ -186,10 +186,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 
 Each item is run as an experiment first — same metro held-out households, paired folds, 1-SE selection, calibration and bootstrap intervals from Phase 2 — and shipped only if it improves the paired-fold log loss; the OD headline and composition are reported before/after in every case.
 
-### 4.1 Pool several ENOE quarters
+### 4.1 Pool several ENOE quarters ✅ done
 - **Why:** one quarter gives 6,973 Jalisco workers; `mxcensus` serves 2022t1–2023t4 (and later) with identical schemas, so 8 quarters give ~50k workers with the same definitions. Wider intervals in 2.6 (log loss ±0.03, gap ±2.6 pp) come mostly from sample size; the rare sector class and the municipality effects are barely estimable on one quarter.
 - **Fix:** `generate_enoe_dataframe(periods=[...])` concatenates quarters with a `period` column, computes dwelling size per quarter, and divides `survey_weight` by the number of quarters (totals stay at population scale; per-quarter benchmark rates reported). The CV/bootstrap group key becomes the **cross-quarter dwelling/household key** (`cd_a, ent, con, v_sel, n_hog, h_mud` — without `tipo`/`mes_cal`, which identify panel visits), so the five visits of a panel household never straddle folds. Benchmark = pooled metro population (per-quarter rates shown).
 - **Verify:** paired-fold log loss of the selected configuration on the 2023t1 metro test households, pooled training vs single quarter; interval widths; OD headline.
+
+- **Done (2026-08-27):** `ENOE_PERIODS` = 2022t1–2023t4 (51,707 workers, 38,933 in the metro benchmark; weights ÷ 8), `period` column, cross-quarter group key `ENOE_GROUP_KEYS` for CV/bootstrap, per-quarter benchmark table. Experiment on identical 2023t1 metro test households: pooled better in 4/5 folds, paired log loss −0.0053 ± 0.0035 SE, AUC 0.829 vs 0.824. Shipped run: benchmark 39.35% pooled (2023t1: 39.59%); held-out (pooled metro fold) log loss A 0.497 [0.481, 0.516], AUC 0.827, gap −0.8 pp [−2.3, +0.7] — bootstrap sd of the log loss halves (0.009 vs 0.017). OD expected informality 33.49%.
 
 ### 4.2 Place of work as a shared feature
 - **Why:** ENOE informality is almost determined by the workplace: `tue1` "no establishment" 99–100% informal vs 11–29% in establishments; `ambito1` 69% vs 14%. The OD has the work trip's destination type (Fábrica/taller, Comercio, Oficina, Otra vivienda, Hospital, Escuela, Restaurante…) for ~88% of workers.

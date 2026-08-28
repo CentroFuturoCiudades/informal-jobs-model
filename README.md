@@ -10,7 +10,7 @@ This repository estimates whether workers in the Guadalajara Metropolitan Area O
 
 Both surveys are loaded through the project's data packages, which download and cache the raw tables on first use, so no survey files need to be stored in this repository:
 
-- **ENOE** (Encuesta Nacional de Ocupación y Empleo, INEGI) via [`mxcensus`](https://github.com/CentroFuturoCiudades/mxcensus). `mxcensus.load_enoe_persons(period="2023t1", ent=14)` returns the sociodemographic roster (SDEM) joined with the two occupation questionnaires (COE1, COE2) for the first quarter of 2023, restricted to Jalisco. The pipeline keeps (`src.ENOE_OUTPUT_COLUMNS`):
+- **ENOE** (Encuesta Nacional de Ocupación y Empleo, INEGI) via [`mxcensus`](https://github.com/CentroFuturoCiudades/mxcensus). `mxcensus.load_enoe_persons(period=..., ent=14)` returns the sociodemographic roster (SDEM) joined with the two occupation questionnaires (COE1, COE2) for one quarter, restricted to Jalisco; the pipeline pools the eight quarters 2022-T1 to 2023-T4 (`src.ENOE_PERIODS`, ~50k workers; survey weights divided by the number of quarters so totals stay at the average quarterly population, panel visits grouped by the cross-quarter household key), with 2023-T1 as the reference quarter matching the OD fieldwork. The pipeline keeps (`src.ENOE_OUTPUT_COLUMNS`):
     - `tipo`, `mes_cal`, `cd_a`, `ent`, `con`, `v_sel`, `n_hog`, `h_mud`, `n_ren`: dwelling, household and person identifiers
     - `mun`: municipality
     - `survey_weight` (`fac_tri`), `survey_stratum` (`est_d_tri`, sampling-design stratum), `survey_psu` (`upm`): survey design variables; `estrato_socioeconomico` (`est`) is INEGI's socio-economic stratum

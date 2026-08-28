@@ -11,7 +11,8 @@ from mxcensus.enoe import _DWELLING_KEY_SPEC, _level_key
 
 
 # ENOE
-ENOE_PERIOD = "2023t1"
+ENOE_PERIOD = "2023t1"                      # reference quarter (matches the OD fieldwork)
+ENOE_PERIODS = ["2022t1", "2022t2", "2022t3", "2022t4", "2023t1", "2023t2", "2023t3", "2023t4"]  # quarters pooled for training (review item 4.1)
 ENOE_STATE_CODE = 14  # Jalisco
 ENOE_DWELLING_KEYS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel"]
 ENOE_HOUSEHOLD_KEYS = ENOE_DWELLING_KEYS + ["n_hog", "h_mud"]
@@ -21,6 +22,10 @@ ENOE_RENAMES = {"fac_tri": "survey_weight", "est_d_tri": "survey_stratum", "upm"
 ENOE_CODE_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "estrato_socioeconomico", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"]
 ENOE_WEIGHT_COLUMNS = ["survey_weight"]
 ENOE_OUTPUT_COLUMNS = ENOE_CODE_COLUMNS[:len(ENOE_PERSON_KEYS) + 3] + ENOE_WEIGHT_COLUMNS + ENOE_CODE_COLUMNS[len(ENOE_PERSON_KEYS) + 3:]
+# Cross-quarter identifiers: tipo/mes_cal distinguish the panel visits of the same dwelling, so grouping (CV folds,
+# bootstrap) across pooled quarters must use the base keys; person rows are unique with the period added.
+ENOE_GROUP_KEYS = ["cd_a", "ent", "con", "v_sel", "n_hog", "h_mud"]
+ENOE_ROW_KEYS = ["period"] + ENOE_PERSON_KEYS
 ENOE_EMPLOYMENT_FILTERS = ("clase2", "p1")
 # Analytical universe for the "clase2" filter: definitive interview, habitual/new residents, age 12+ (INEGI uses 15+;
 # 12 keeps the working 12-14 year olds that the OD survey also records). The upper bound 98 follows INEGI's own
@@ -81,7 +86,23 @@ def load_enoe_employed_persons(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, e
 
     return persons[employed.fillna(False).astype(bool)].copy()
 
-def generate_enoe_dataframe(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="clase2"):
+def generate_enoe_dataframe(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="clase2", periods=ENOE_PERIODS):
+    """Employed ENOE workers for one quarter (``period``) or several pooled quarters (``periods``).
+
+    When several quarters are pooled the frame gets a ``period`` column and ``survey_weight`` is divided by the number
+    of quarters, so weighted totals remain at population scale (the average quarterly population) and per-quarter
+    rates can still be recovered by multiplying back.
+    """
+    periods = list(periods) if periods else [period]
+    frames = [_generate_enoe_quarter(quarter, state_code, employment_filter).assign(period=quarter) for quarter in periods]
+    enoe = pd.concat(frames, ignore_index=True)
+    enoe["survey_weight"] = enoe["survey_weight"] / len(periods)
+    enoe = enoe[["period"] + ENOE_OUTPUT_COLUMNS]
+    assert not enoe.duplicated(ENOE_ROW_KEYS).any(), "ENOE person rows must be unique within a quarter"
+
+    return enoe
+
+def _generate_enoe_quarter(period, state_code, employment_filter):
     enoe = load_enoe_employed_persons(period=period, state_code=state_code, employment_filter=employment_filter)
     dwelling_size = compute_enoe_dwelling_size(period=period, state_code=state_code)
     enoe = enoe.merge(dwelling_size, on=ENOE_DWELLING_KEYS, how="left", validate="many_to_one")
