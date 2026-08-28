@@ -75,9 +75,6 @@ columns:
   # - p4f = where the activity takes place when there are no premises,
   # - p4h = where a subordinate works.
   workplace: [p4, p4b, p4e, p4f, p4h]
-  # Roster aggregates (4.3) computed over the residents of the household
-  # (see compute_enoe_dwelling_size).
-  roster: [hogar_trabajadores, hogar_ninos_6_11]
   # tue2 (type of economic unit incl. informal sector / paid domestic work / 
   #                                   subsistence agriculture) 
   # and seg_soc (access to social security) 

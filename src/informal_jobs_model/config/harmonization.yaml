@@ -23,10 +23,6 @@ household_size:
   bins: [1, 2, 3, 4, 5, 6, 7]
   labels: ["1", "2", "3", "4", "5", "6", "7_y_mas"]
 
-household_roster:
-  workers_cap: 4         # hogar_trabajadores_cat: 0..3, 4_y_mas
-  children_cap: 2        # hogar_ninos_cat: 0, 1, 2_y_mas
-
 # ENOE `tue2` codes that define the informal-sector component of the informality label:
 # 5 = sector informal, 6 = trabajo doméstico remunerado, 7 = agricultura de subsistencia.
 informal_sector_tue2: [5, 6, 7]
@@ -42,6 +38,4 @@ category_levels:
   estado_civil: [union_libre, separado, divorciado, viudo, casado, soltero]
   parentesco: [jefe_del_hogar, conyuge, hijo, otro_parentesco, sin_parentesco]
   lugar_trabajo: [establecimiento, comercio_o_puesto, otra_vivienda, otro_o_sin_local]
-  hogar_trabajadores_cat: ["0", "1", "2", "3", 4_y_mas]
-  hogar_ninos_cat: ["0", "1", 2_y_mas]
   weekend_dest_trabajar: [Sí, "No"]

@@ -31,7 +31,6 @@ ENOE_ROW_KEYS = ["period"] + ENOE_PERSON_KEYS
 ENOE_RENAMES = dict(_ENOE["renames"])
 _COLUMNS = _ENOE["columns"]
 ENOE_WORKPLACE_COLUMNS = list(_COLUMNS["workplace"])
-ENOE_ROSTER_COLUMNS = list(_COLUMNS["roster"])
 ENOE_COMPONENT_COLUMNS = list(_COLUMNS["components"])
 ENOE_WEIGHT_COLUMNS = list(_COLUMNS["weights"])
 ENOE_OUTPUT_COLUMNS = (
@@ -40,14 +39,11 @@ ENOE_OUTPUT_COLUMNS = (
     + ENOE_WEIGHT_COLUMNS
     + _COLUMNS["attributes"]
     + ENOE_WORKPLACE_COLUMNS
-    + ENOE_ROSTER_COLUMNS
     + ENOE_COMPONENT_COLUMNS
 )
 ENOE_CODE_COLUMNS = [c for c in ENOE_OUTPUT_COLUMNS if c not in ENOE_WEIGHT_COLUMNS]
 # Habitual (1) or new (3) residents; persons who moved out are not counted.
 ENOE_RESIDENT_CODES = ["1", "3"]
-# Children counted in the household roster: the OD roster starts at age 6, so younger children are not comparable.
-ROSTER_CHILD_AGES = (6, 11)
 
 # OD
 _OD = load_config("od")
@@ -68,32 +64,13 @@ def assert_enoe_dwelling_key(frame, period):
 
 
 def compute_enoe_dwelling_size(period, state_code=ENOE_STATE_CODE):
-    """Per-dwelling and per-household roster aggregates from the full SDEM roster of habitual/new residents:
-    ``dwelling_size`` (all ages, all households of the dwelling), ``hogar_trabajadores`` (employed members of the
-    household, ``clase2 == 1``) and ``hogar_ninos_6_11`` (household members aged 6-11)."""
+    """Persons per dwelling (all ages, all households of the dwelling) from the full SDEM roster of habitual/new
+    residents."""
     sdem = mxcensus.load_enoe(table="sdem", period=period, ent=state_code)
     assert_enoe_dwelling_key(sdem, period)
-    sdem = sdem[sdem["c_res"].isin(ENOE_RESIDENT_CODES)].copy()
-    sdem["_employed"] = (sdem["clase2"] == "1").astype(int)
-    sdem["_child"] = (
-        pd.to_numeric(sdem["eda"], errors="coerce")
-        .between(*ROSTER_CHILD_AGES)
-        .astype(int)
-    )
-    dwelling_size = (
-        sdem.groupby(ENOE_DWELLING_KEYS).size().rename("dwelling_size").reset_index()
-    )
-    household = (
-        sdem.groupby(ENOE_HOUSEHOLD_KEYS)
-        .agg(
-            hogar_trabajadores=("_employed", "sum"), hogar_ninos_6_11=("_child", "sum")
-        )
-        .reset_index()
-    )
+    sdem = sdem[sdem["c_res"].isin(ENOE_RESIDENT_CODES)]
 
-    return dwelling_size.merge(
-        household, on=ENOE_DWELLING_KEYS, how="left", validate="one_to_many"
-    )
+    return sdem.groupby(ENOE_DWELLING_KEYS).size().rename("dwelling_size").reset_index()
 
 
 def load_enoe_employed_persons(period, state_code=ENOE_STATE_CODE):
@@ -141,7 +118,7 @@ def _generate_enoe_quarter(period, state_code):
     enoe = load_enoe_employed_persons(period=period, state_code=state_code)
     dwelling_size = compute_enoe_dwelling_size(period=period, state_code=state_code)
     enoe = enoe.merge(
-        dwelling_size, on=ENOE_HOUSEHOLD_KEYS, how="left", validate="many_to_one"
+        dwelling_size, on=ENOE_DWELLING_KEYS, how="left", validate="many_to_one"
     )
     assert enoe["dwelling_size"].notna().all(), (
         "Every employed person must belong to a dwelling in SDEM"
@@ -177,37 +154,10 @@ def compute_od_work_trip_destination(trips):
     return destination.reset_index()
 
 
-def compute_od_household_roster(population):
-    """Household roster aggregates comparable with ENOE's: employed members and children aged 6-11 (4.3)."""
-    roster = population.copy()
-    roster["_employed"] = (
-        roster["trabajo_semana_pasada"].isin(OD_EMPLOYED_CATEGORIES).astype(int)
-    )
-    roster["_child"] = (
-        pd.to_numeric(roster["edad"], errors="coerce")
-        .between(*ROSTER_CHILD_AGES)
-        .astype(int)
-    )
-
-    return (
-        roster.groupby("folio_vivienda")
-        .agg(
-            hogar_trabajadores=("_employed", "sum"), hogar_ninos_6_11=("_child", "sum")
-        )
-        .reset_index()
-    )
-
-
 def generate_od_dataframe():
     tables = eodgdl.load_eod()
     population = tables.hab.reset_index()
     households = tables.viv[OD_DWELLING_COLUMNS]
-    population = population.merge(
-        compute_od_household_roster(population),
-        on="folio_vivienda",
-        how="left",
-        validate="many_to_one",
-    )
     population = population.merge(
         compute_od_work_trip_destination(tables.trips),
         on=["folio_vivienda", "folio_habitante"],

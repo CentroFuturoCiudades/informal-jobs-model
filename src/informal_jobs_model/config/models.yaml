@@ -3,7 +3,7 @@
 
 # Harmonized attributes shared by both surveys (stage 2 output); every feature list below is a subset of these
 # plus the raw OD columns.
-harmonized_features: [genero, ocupacion, edad_num, edad_cat, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector, lugar_trabajo, hogar_trabajadores_cat, hogar_ninos_cat]
+harmonized_features: [genero, ocupacion, edad_num, edad_cat, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector, lugar_trabajo]
 # Numeric model features (everything else is categorical). The dest_share_<sector> columns are added in code.
 numeric_features: [edad_num, dest_establecimientos_log, dest_share_grandes]
 

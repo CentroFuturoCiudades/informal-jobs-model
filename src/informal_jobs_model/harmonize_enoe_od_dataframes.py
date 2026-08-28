@@ -21,8 +21,6 @@ _HARMONIZATION = load_config("harmonization")  # see src/config/harmonization.ya
 AGE_BINS = list(_HARMONIZATION["age"]["bins"]) + [np.inf]  # left-closed; last bin open
 ENOE_AGE_UNSPECIFIED = _HARMONIZATION["age"]["enoe_unspecified"]
 HOUSEHOLD_SIZE_BINS = list(_HARMONIZATION["household_size"]["bins"]) + [np.inf]
-HOUSEHOLD_WORKERS_CAP = _HARMONIZATION["household_roster"]["workers_cap"]
-HOUSEHOLD_CHILDREN_CAP = _HARMONIZATION["household_roster"]["children_cap"]
 INFORMAL_SECTOR_TUE2 = list(_HARMONIZATION["informal_sector_tue2"])
 
 def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
@@ -344,14 +342,6 @@ def harmonize_od_workplace(od):
 
     return od
 
-# HOUSEHOLD ROSTER (review item 4.3)
-def harmonize_household_roster(frame):
-    frame = frame.copy()
-    frame["hogar_trabajadores_cat"] = pd.to_numeric(frame["hogar_trabajadores"], errors="coerce").clip(upper=HOUSEHOLD_WORKERS_CAP).astype("Int64").astype("string").replace({str(HOUSEHOLD_WORKERS_CAP): f"{HOUSEHOLD_WORKERS_CAP}_y_mas"}).fillna(NO_ESPECIFICADO)
-    frame["hogar_ninos_cat"] = pd.to_numeric(frame["hogar_ninos_6_11"], errors="coerce").clip(upper=HOUSEHOLD_CHILDREN_CAP).astype("Int64").astype("string").replace({str(HOUSEHOLD_CHILDREN_CAP): f"{HOUSEHOLD_CHILDREN_CAP}_y_mas"}).fillna(NO_ESPECIFICADO)
-
-    return frame
-
 def generate_enoe_informal_label(enoe):
     """``informal`` (INEGI `emp_ppal`) and its two components: ``informal_sector`` (informal-sector units, paid domestic
     work, subsistence agriculture — identifiable from the type of unit) and ``informal_unprotected`` (informal employment
@@ -378,7 +368,6 @@ def harmonize_enoe_dataframe(enoe):
     enoe = harmonize_enoe_household_size(enoe)
     enoe = harmonize_enoe_sector(enoe)
     enoe = harmonize_enoe_workplace(enoe)
-    enoe = harmonize_household_roster(enoe)
     enoe = generate_enoe_informal_label(enoe)
 
     return enoe
@@ -395,6 +384,5 @@ def harmonize_od_dataframe(od):
     od = harmonize_od_household_size(od)
     od = harmonize_od_sector(od)
     od = harmonize_od_workplace(od)
-    od = harmonize_household_roster(od)
 
     return od
