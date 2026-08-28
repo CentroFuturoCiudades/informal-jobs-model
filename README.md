@@ -70,14 +70,14 @@ The next step is to conduct a general diagnostic analysis of the variables that 
 **Module:** `diagnose_enoe_od_dataframes.py`
 
 ### 2.4 Economic activity (giro) imputation
-Most OD workers did not report the activity of their employer (`giro_empresa`). The self-contained subpackage `informal_jobs_model.od_sector` imputes it **within the OD survey and in the survey's own terms**: it reads the cleaned tables directly through `eodgdl.load_eod()`, uses raw survey columns as predictors (sex, age, education, municipality, marital status, relationship, dwelling size, occupation, employment status, dwelling centrality, the work-trip destination type and mode, weekend work travel, household vehicles) plus the destination's ámbito and DENUE establishment mix (fetched through `mxcensus`), and predicts the five native giro levels (Comercio, Servicio, Educación, Industria, Gobierno/sector público). Three classifiers (Logistic Regression, Random Forest, Histogram Gradient Boosting) are tuned under a household-grouped cross-validation with a one-standard-error selection rule, in two specifications (with and without education) combined into a hybrid: workers with observed education are scored by the first, the rest by the second. Workers without a work trip are marginalized over destination types with an auxiliary model P(destination | x). The output is the full probability vector `prob_giro_<giro>`; `giro_final` (the arg-max) is a convenience. Nothing in this stage depends on ENOE, which is what allows the model to move to the `eodgdl` package.
+Most OD workers did not report the activity of their employer (`giro_empresa`). The `eodgdl.giro` subpackage of the [`eodgdl`](https://github.com/CentroFuturoCiudades/eodgdl) package (extra `eodgdl[giro]`) imputes it **within the OD survey and in the survey's own terms**: it reads the cleaned tables directly through `eodgdl.load_eod()`, uses raw survey columns as predictors (sex, age, education, municipality, marital status, relationship, dwelling size, occupation, employment status, dwelling centrality, the work-trip destination type and mode, weekend work travel, household vehicles) plus the destination's ámbito and DENUE establishment mix (fetched through `mxcensus`), and predicts the five native giro levels (Comercio, Servicio, Educación, Industria, Gobierno/sector público). Three classifiers (Logistic Regression, Random Forest, Histogram Gradient Boosting) are tuned under a household-grouped cross-validation with a one-standard-error selection rule, in two specifications (with and without education) combined into a hybrid: workers with observed education are scored by the first, the rest by the second. Workers without a work trip are marginalized over destination types with an auxiliary model P(destination | x). The output is the full probability vector `prob_giro_<giro>`; `giro_final` (the arg-max) is a convenience. Nothing in that model depends on ENOE, which is why it lives in the survey package rather than here; its training, validation and calibration are documented in eodgdl's `notebooks/giro_model.ipynb`. Notebook 04 of this pipeline scores the survey with the fitted bundle served by eodgdl (`giro.load_model()`) and propagates the two sensitivity scenarios.
 
 The informality stage consumes the giro probabilities collapsed to the four harmonized sector classes (`ijm.attach_sector_probabilities`, using the many-to-one map `sector.yaml` `od_giro`: Servicio and Educación → `servicios_transporte`, Industria → `manufactura_construccion`, Gobierno → `gobierno_otro_agricultura`), which is lossless for the marginalization over sectors.
 
-The imputation assumes that, conditional on the predictors, workers who did not report a giro are distributed like workers who did (missing at random given the covariates). The two populations differ — non-respondents are more educated and their missing giro co-occurs with other item non-response — so notebook 04 reports two sensitivity scenarios (a refit on training rows reweighted to the non-respondent profile, and a delta adjustment of the rare `gobierno` class to its observed share), and notebook 05 reports the informality headline under each. The shipped outputs use the unadjusted imputation.
+The imputation assumes that, conditional on the predictors, workers who did not report a giro are distributed like workers who did (missing at random given the covariates). The two populations differ — non-respondents are more educated and their missing giro co-occurs with other item non-response — so notebook 04 propagates two sensitivity scenarios computed with `eodgdl.giro` (a refit on training rows reweighted to the non-respondent profile, and a delta adjustment of the rare `gobierno` class to its observed share), and notebook 05 reports the informality headline under each. The shipped outputs use the unadjusted imputation.
 
 **Notebook**: `04_impute_economic_sector.ipynb`
-**Module:** `od_sector/` (`features.py`, `model.py`, `config.yaml`)
+**Module:** `eodgdl.giro` (in the eodgdl package); `attach_sector_probabilities` in `harmonize_enoe_od_dataframes.py`
 
 ### 2.5 Informality Classification
 Analogously to the economic-sector assignment stage, we evaluate three Machine Learning algorithms to estimate formal and informal employment among workers in the Origin-Destination survey, using ENOE as the training source. A hybrid strategy is adopted: when educational information is available, the model including education is used; otherwise, a robust specification excluding education is applied.
@@ -114,7 +114,6 @@ The final fitted models are stored in `outputs/models/`:
 
 | Output | Description |
 |---|---|
-| `od_giro_hybrid_model.joblib` | Final hybrid OD giro model (`od_sector`), combining the specifications with and without education, with the auxiliary destination models. |
 | `informality_hybrid_model.joblib` | Final hybrid informality model trained on ENOE and used to estimate informality probabilities in OD. |
 
 These files allow the final models to be loaded and applied without repeating the complete tuning and training procedure.
@@ -142,7 +141,7 @@ The fitted models can be used to assign economic-sector and informality informat
 
 The main files for downstream applications are:
 
-- `outputs/models/od_giro_hybrid_model.joblib`: used when the economic activity (giro) is unknown.
+- eodgdl's `od_giro_hybrid_model.joblib` (`eodgdl.giro.load_model()`): used when the economic activity (giro) is unknown.
 - `outputs/models/informality_hybrid_model.joblib`: used to estimate the probability of informal employment.
 - `outputs/od_informality_imputed.parquet`: final modeled OD dataset and reference output of the complete pipeline.
 
@@ -161,7 +160,7 @@ For informality prediction, the relevant harmonized worker attributes are primar
 - `sector`
 - `lugar_trabajo` (place of work: `establecimiento`, `comercio_o_puesto`, `otra_vivienda`, `otro_o_sin_local`; from the ENOE workplace questions and the OD work-trip destination)
 
-If the economic sector is unavailable, it must first be estimated with the giro model: `od_sector.build_worker_features(eodgdl.load_eod())` builds the worker frame, `od_sector.impute_giro(bundle["model_with_education"], bundle["model_without_education"], frame, destination_models=bundle["destination_models"])` scores it, and `ijm.attach_sector_probabilities(od_harmonized, od_giro)` collapses the result to the harmonized sector classes.
+If the economic sector is unavailable, it must first be estimated with the giro model: `eodgdl.giro.impute(eodgdl.load_eod())` builds the worker frame and scores it with the fitted bundle, and `ijm.attach_sector_probabilities(od_harmonized, od_giro)` collapses the result to the harmonized sector classes.
 
 All categorical variables should use the same categories established during the harmonization stage.
 

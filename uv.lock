@@ -517,7 +517,7 @@ wheels = [
 [[package]]
 name = "eodgdl"
 version = "0.1.0"
-source = { git = "https://github.com/CentroFuturoCiudades/eodgdl.git?rev=v0.1.0#fc84253fbb0914bf5f45365967fa531fedb9f22b" }
+source = { git = "https://github.com/CentroFuturoCiudades/eodgdl.git?branch=giro-model#9aa68d00e18085b48521cd86ae99323ee481911d" }
 dependencies = [
     { name = "geopandas" },
     { name = "numpy" },
@@ -527,6 +527,14 @@ dependencies = [
     { name = "pooch" },
     { name = "pyarrow" },
     { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+giro = [
+    { name = "joblib" },
+    { name = "mxcensus" },
+    { name = "pyyaml" },
+    { name = "scikit-learn" },
 ]
 
 [[package]]
@@ -657,7 +665,7 @@ name = "informal-jobs-model"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "eodgdl" },
+    { name = "eodgdl", extra = ["giro"] },
     { name = "ipykernel" },
     { name = "joblib" },
     { name = "jupyterlab" },
@@ -673,7 +681,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "eodgdl", git = "https://github.com/CentroFuturoCiudades/eodgdl.git?rev=v0.1.0" },
+    { name = "eodgdl", extras = ["giro"], git = "https://github.com/CentroFuturoCiudades/eodgdl.git?branch=giro-model" },
     { name = "ipykernel", specifier = ">=7.3.0" },
     { name = "joblib", specifier = ">=1.5.3" },
     { name = "jupyterlab", specifier = ">=4.6.3" },
