@@ -71,6 +71,8 @@ The next step is to conduct a general diagnostic analysis of the variables that 
 ### 2.4 Economic Sector Assignment
 Next, three Machine Learning classifiers (Logistic Regression, Random Forest, and Histogram Gradient Boosting) are evaluated to predict the economic sector of OD workers with missing sector information. Two model specifications are considered, with and without educational level, and the best model from each specification is combined into a hybrid strategy. Workers with available education are classified using the education-based model, while workers without this information use the robust alternative. The final dataset includes both an assigned economic sector and the predicted probabilities for all four sector categories.
 
+The imputation assumes that, conditional on the harmonized attributes, workers who did not report a sector are distributed across sectors like workers who did (missing at random given the covariates). The two populations differ — non-respondents are more educated and their missing sector co-occurs with other item non-response — so notebook 04 reports two sensitivity scenarios (a refit on training rows reweighted to the non-respondent profile, and a delta adjustment of the rare `gobierno_otro_agricultura` class to its observed share), and notebook 05 reports the informality headline under each. The shipped outputs use the unadjusted imputation.
+
 **Notebook**: `04_impute_economic_sector.ipynb`
 **Module:** `impute_economic_sector.py`
 

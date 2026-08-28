@@ -11,7 +11,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
@@ -419,3 +419,51 @@ def calculate_probabilistic_sector_distribution(dataframe, weight_column="expans
     distribution["weighted_share"] = distribution["weighted_population"] / distribution["weighted_population"].sum()
 
     return distribution
+
+# Sensitivity of the imputation to the covariate shift between known- and unknown-sector workers (review item 2.5)
+SECTOR_SHIFT_PROFILE_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada"]
+
+def impute_sectors_under_covariate_shift(model_with_education, model_without_education, od, with_education_features=OD_SECTOR_FEATURES, without_education_features=OD_ROBUST_SECTOR_FEATURES, profile_features=SECTOR_SHIFT_PROFILE_FEATURES):
+    """Re-impute after refitting the selected models on known-sector rows **reweighted to the unknown-sector profile**.
+
+    The validation in this stage only sees known-sector households; the imputation target is a different population
+    (more educated, item non-response elsewhere in the questionnaire). Under MAR-given-x the two fits should agree;
+    the difference in the imputed sector distribution is the sensitivity of the result to the shift. Education is not
+    in the profile features (it is what differs most and is largely missing in the target). Returns
+    ``(od_imputed_under_shift, diagnostics)``.
+    """
+    known = od[~od["sector_desconocido"]]
+    unknown = od[od["sector_desconocido"]]
+    reweighted_known, diagnostics = reweight_to_target_profile(known, unknown, profile_features, "expansion_factor", "expansion_factor")
+    shifted = pd.concat([reweighted_known, unknown]).sort_index()
+    model_with_education_shift, _ = refit_probabilistic_sector_model(model_with_education, shifted, sector_features=with_education_features)
+    model_without_education_shift, _ = refit_probabilistic_sector_model(model_without_education, shifted, sector_features=without_education_features)
+    imputed = impute_missing_sectors_hybrid(model_with_education_shift, model_without_education_shift, od, with_education_features=with_education_features, without_education_features=without_education_features)
+
+    return imputed, diagnostics
+
+def adjust_imputed_sector_share(od_imputed, sector_class, target_share=None):
+    """Delta adjustment: scale the imputed probability of ``sector_class`` so the weighted imputed share equals
+    ``target_share`` (default: the observed share among known-sector workers), renormalizing the other classes.
+    Returns the adjusted frame (``sector_final`` recomputed for imputed rows) and the scaling factor."""
+    od_imputed = od_imputed.copy()
+    imputed = od_imputed["sector_fue_imputado"].to_numpy()
+    weights = od_imputed["expansion_factor"].astype(float)
+    column = f"prob_sector_{sector_class}"
+    if target_share is None:
+        target_share = (weights[~imputed] * (od_imputed.loc[~imputed, "sector_final"] == sector_class).to_numpy(dtype=float)).sum() / weights[~imputed].sum()
+    current_share = (weights[imputed] * od_imputed.loc[imputed, column]).sum() / weights[imputed].sum()
+    factor = target_share / current_share
+    other_columns = [f"prob_sector_{other}" for other in SECTOR_CLASSES if other != sector_class]
+    adjusted = (od_imputed.loc[imputed, column] * factor).clip(upper=1.0)
+    remaining = 1.0 - adjusted
+    other_total = od_imputed.loc[imputed, other_columns].sum(axis=1).replace(0, np.nan)
+    for other in other_columns:
+        od_imputed.loc[imputed, other] = (od_imputed.loc[imputed, other] / other_total * remaining).fillna(0.0)
+    od_imputed.loc[imputed, column] = adjusted
+    probability_columns = [f"prob_sector_{name}" for name in SECTOR_CLASSES]
+    od_imputed.loc[imputed, "sector_final"] = np.array(SECTOR_CLASSES)[od_imputed.loc[imputed, probability_columns].to_numpy().argmax(axis=1)]
+    od_imputed.loc[imputed, "sector_imputado"] = od_imputed.loc[imputed, "sector_final"]
+    validate_sector_probability_rows(od_imputed)
+
+    return od_imputed, float(factor)

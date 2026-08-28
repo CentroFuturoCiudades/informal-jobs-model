@@ -341,3 +341,48 @@ def fit_isotonic_calibrator(model, X, y, sample_weights, groups, cv_splits=5, ra
     calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(out_of_fold, (y == positive_class).astype(float), sample_weight=sample_weights)
 
     return IsotonicCalibratedPipeline(model, calibrator, positive_class=positive_class)
+
+
+# Density-ratio reweighting of one population to another's covariate profile (review items 2.4 / 2.5)
+def reweight_to_target_profile(source_rows, target_rows, features, source_weight_column, target_weight_column, random_state=42):
+    """Reweight ``source_rows`` so their covariate distribution matches ``target_rows``.
+
+    A weighted logistic classifier separates target from source on ``features``; each source row's weight is
+    multiplied by the fitted odds, the density ratio f_target(x) / f_source(x). Weights are rescaled to the original
+    total. Returns ``(reweighted_rows, diagnostics)`` with the effective sample size and the weight share of the top
+    decile of odds ratios (large values mean the reweighting rests on few rows).
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    X_source = prepare_model_features(source_rows, features)
+    X_target = prepare_model_features(target_rows, features)
+    source_weight = source_rows[source_weight_column].astype(float).to_numpy()
+    target_weight = target_rows[target_weight_column].astype(float).to_numpy()
+    stacked = pd.concat([X_source, X_target], ignore_index=True)
+    label = np.r_[np.zeros(len(X_source)), np.ones(len(X_target))]
+    # equal total mass per group, mean weight 1 on the source side (keeps the penalty term from dominating)
+    weight = np.r_[source_weight / source_weight.mean(), target_weight / target_weight.mean() * (len(source_weight) / len(target_weight))]
+    numerical_features, categorical_features = split_feature_types(features)
+    preprocessor = ColumnTransformer([("numerical", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), numerical_features), ("categorical", OneHotEncoder(handle_unknown="ignore"), categorical_features)])
+    classifier = Pipeline([("preprocessor", preprocessor), ("classifier", LogisticRegression(C=1.0, max_iter=2000, random_state=random_state))])
+    classifier.fit(stacked, label, classifier__sample_weight=weight)
+    probability = classifier.predict_proba(X_source)[:, 1].clip(1e-4, 1 - 1e-4)
+    odds = probability / (1 - probability)
+
+    reweighted = source_rows.copy()
+    new_weight = source_weight * odds
+    reweighted[source_weight_column] = new_weight * source_weight.sum() / new_weight.sum()
+    top_decile = odds >= np.quantile(odds, 0.9)
+    diagnostics = pd.Series({
+        "rows": len(reweighted),
+        "effective_sample_size": float(new_weight.sum() ** 2 / (new_weight ** 2).sum()),
+        "top_decile_weight_share": float(new_weight[top_decile].sum() / new_weight.sum()),
+        "odds_ratio_median": float(np.median(odds)),
+        "odds_ratio_p90": float(np.quantile(odds, 0.9)),
+    })
+
+    return reweighted, diagnostics

@@ -12,7 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
@@ -277,43 +277,8 @@ def get_best_informality_model(model_summary, best_models):
 OD_PROFILE_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat"]
 
 def reweight_to_od_profile(enoe_rows, od_target_rows, features=OD_PROFILE_FEATURES, weight_column="survey_weight", random_state=42):
-    """Reweight ENOE rows so their covariate distribution matches a target OD sub-population.
-
-    A weighted logistic classifier separates the target OD rows (expansion factors) from the ENOE rows (survey
-    weights) on the shared features; each ENOE row's weight is multiplied by the fitted odds, which is the density
-    ratio f_target(x) / f_enoe(x) (rows that look like the target count more). Weights are rescaled to the original
-    total. Returns ``(reweighted_rows, diagnostics)`` where diagnostics has the effective sample size and the share of
-    weight carried by the top decile of odds ratios (a check that the reweighting is not driven by a few rows).
-    """
-    X_enoe = prepare_model_features(enoe_rows, features)
-    X_target = prepare_model_features(od_target_rows, features)
-    stacked = pd.concat([X_enoe, X_target], ignore_index=True)
-    label = np.r_[np.zeros(len(X_enoe)), np.ones(len(X_target))]
-    # Each group's weights are rescaled to mean 1 (equal total mass per group; the classifier then estimates the
-    # density ratio of the two weighted distributions without the penalty term dominating).
-    enoe_weight = enoe_rows[weight_column].astype(float).to_numpy()
-    target_weight = od_target_rows["expansion_factor"].astype(float).to_numpy()
-    weight = np.r_[enoe_weight / enoe_weight.mean(), target_weight / target_weight.mean() * (len(enoe_weight) / len(target_weight))]
-    numerical_features, categorical_features = split_feature_types(features)
-    preprocessor = ColumnTransformer([("numerical", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), numerical_features), ("categorical", OneHotEncoder(handle_unknown="ignore"), categorical_features)])
-    classifier = Pipeline([("preprocessor", preprocessor), ("classifier", LogisticRegression(C=1.0, max_iter=2000, random_state=random_state))])
-    classifier.fit(stacked, label, classifier__sample_weight=weight)
-    probability = classifier.predict_proba(X_enoe)[:, 1].clip(1e-4, 1 - 1e-4)
-    odds = probability / (1 - probability)
-
-    reweighted = enoe_rows.copy()
-    new_weight = reweighted[weight_column].astype(float) * odds
-    reweighted[weight_column] = new_weight * reweighted[weight_column].astype(float).sum() / new_weight.sum()
-    top_decile = odds >= np.quantile(odds, 0.9)
-    diagnostics = pd.Series({
-        "rows": len(reweighted),
-        "effective_sample_size": float(new_weight.sum() ** 2 / (new_weight ** 2).sum()),
-        "top_decile_weight_share": float(new_weight[top_decile].sum() / new_weight.sum()),
-        "odds_ratio_median": float(np.median(odds)),
-        "odds_ratio_p90": float(np.quantile(odds, 0.9)),
-    })
-
-    return reweighted, diagnostics
+    """ENOE rows reweighted to the covariate profile of a target OD sub-population (see ``common.reweight_to_target_profile``)."""
+    return reweight_to_target_profile(enoe_rows, od_target_rows, features, weight_column, "expansion_factor", random_state=random_state)
 
 def evaluate_on_od_profile(models, enoe_test, od_target_rows, features_by_model, profile_features=OD_PROFILE_FEATURES):
     """Held-out metrics for ``{label: model}`` on the same ENOE rows under survey weights and under weights matched to
