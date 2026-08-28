@@ -79,7 +79,7 @@ The imputation assumes that, conditional on the harmonized attributes, workers w
 ### 2.5 Informality Classification
 Analogously to the economic-sector assignment stage, we evaluate three Machine Learning algorithms to estimate formal and informal employment among workers in the Origin-Destination survey, using ENOE as the training source. A hybrid strategy is adopted: when educational information is available, the model including education is used; otherwise, a robust specification excluding education is applied.
 
-The final output is probabilistic. For each worker, the model estimates the probability of informal employment, while uncertainty in the economic sector is propagated by marginalizing over the sector probabilities obtained in the previous stage. For comparison, a hard classification is also generated using a 50% threshold, assigning workers as informal when $P(\text{informal}) \geq 0.5$. However, the expected probabilistic approach is retained as the main population-level estimate because it preserves the uncertainty of the predictions.
+The final output is probabilistic. For each worker, the model estimates the probability of informal employment, while uncertainty in the economic sector is propagated by marginalizing over the sector probabilities obtained in the previous stage. The population-level estimate is the expectation of these probabilities; a discrete status is provided as one Bernoulli draw per worker (`informal_sampled`), which is unbiased for weighted aggregates. A 50% threshold classification (`informal_predicted`) is kept in the output for convenience but is not an estimate of informality: it shrinks toward the majority class and understates the rate by more than ten percentage points. The notebook also decomposes the gap between the ENOE benchmark and the OD estimate into model bias, composition (direct standardization of ENOE to the OD covariate profile) and a residual. ENOE 2023-T1 (January–March) and the OD fieldwork (23 January–29 April 2023) cover the same period.
 
 **Notebook**: `05_informality_model.ipynb`
 **Module:** `informality_model.py`
@@ -170,6 +170,7 @@ For downstream applications, the main variables to retain are:
 - `prob_sector_servicios_transporte`
 - `sector_final`
 - `prob_informal`
+- `informal_sampled`
 - `informal_predicted`
 
 The primary informality output is `prob_informal`. If a discrete formal/informal status is required, it can either be obtained using the 50% classification threshold or sampled probabilistically as

@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phases 0–1 done** (2026-08-27, incl. 1.12–1.13); Phase 2 in progress; Phase 3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phases 0–2 done** (2026-08-27); Phase 3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -151,8 +151,11 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Done (2026-08-27):** `marginal_log_loss`, `fold_table`, `bootstrap_by_group` (cluster bootstrap over test households, 500 resamples) and `cross_validate_grouped` in `src/common.py`; `sector_test_metrics_with_uncertainty` / `informality_test_metrics_with_uncertainty` wrappers; notebooks 04/05 print per-fold tables, the PSU-grouped CV of the selected informality configurations, and bootstrap intervals for the held-out metrics.
 - **Result — sector (test fold):** log loss A 1.076 [1.045, 1.115] vs marginal 1.213 → 11.3% improvement (B: 1.108 → 8.7%); weighted accuracy A 0.483 [0.461, 0.506]; macro-F1 0.386 [0.362, 0.411]. **Informality (metro test fold 0):** log loss A 0.473 [0.440, 0.507] vs marginal 0.663 → 28.6% (B: 0.505 → 23.8%); AUC A 0.839 [0.810, 0.869], B 0.808 [0.775, 0.839]; aggregate gap A +2.9 pp [+0.2, +5.4], B +2.9 [−0.03, +5.7] — the fold-0 gap sits at the edge of its own bootstrap interval, consistent with the cross-fold picture (−1.9 … +2.7). PSU-grouped CV: mean log loss A 0.515 vs 0.514 household-grouped, B 0.560 vs 0.556 — no material optimism from household-only grouping.
 
-### 2.7 Threshold series and headline comparison
+### 2.7 Threshold series and headline comparison ✅ done
 - **Fix:** remove "OD duro" (0.5 threshold; 7% hard rate on imputed-sector rows is a marginalization-shrinkage artifact) from the comparison figure or annotate it; add a Bernoulli-sampled series (unbiased for the aggregate). Add a one-paragraph decomposition of the ENOE→OD gap (direct standardization on `ocupacion`, `escolaridad`, `sector`, `genero`) and note ENOE is Jan–Mar 2023.
+
+- **Done (2026-08-27):** `sample_informality` (one Bernoulli draw per worker, `informal_sampled` in the output parquet) replaces "OD duro" in the final figure/tables as "OD muestreo"; `informal_predicted` stays in the file but is documented as not an estimate. `decompose_enoe_od_gap` (direct standardization of the ENOE benchmark to the OD covariate profile with the density-ratio helper) added to notebook 05 with a paragraph; README §2.5 and §4.3 updated. Periods coincide (ENOE Jan–Mar 2023; OD fieldwork 23 Jan–29 Apr 2023), so no seasonality caveat.
+- **Result:** OD muestreo 33.22% vs OD esperado 33.45% vs ENOE 39.59% (the threshold series was 19.65%). Decomposition: ENOE observed 39.59% → model-predicted on ENOE 40.11% (+0.5 pp bias) → reweighted to the OD profile 34.22% (−5.9 pp composition; observed-rate composition −7.8 pp) → OD 33.45% (−0.8 pp residual). Effective sample size of the reweighting is small (246 of 5,280 rows; top decile 26% of weight) because the OD profile — 16% education non-response, more employees, more educated — is far from ENOE's, so the composition term is indicative rather than precise; but the ordering is clear: about 90% of the ENOE→OD gap is composition, not model bias.
 
 ---
 

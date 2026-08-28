@@ -550,3 +550,59 @@ def informality_test_metrics_with_uncertainty(model, test_data, features=INFORMA
     summary.loc["relative_improvement_over_marginal", "estimate"] = 1 - summary.loc["weighted_log_loss", "estimate"] / summary.loc["marginal_log_loss", "estimate"]
 
     return summary
+
+
+# Sampled informality status and decomposition of the ENOE -> OD gap (review item 2.7)
+def sample_informality(od, probability_column="prob_informal", random_state=42):
+    """One Bernoulli draw per worker, I ~ Bernoulli(prob_informal): a discrete status that is unbiased for every
+    weighted aggregate (unlike the 0.5 threshold, which shrinks toward the majority class and, for workers whose
+    sector was marginalized, toward the middle)."""
+    rng = np.random.default_rng(random_state)
+
+    return (rng.random(len(od)) < od[probability_column].to_numpy()).astype(int)
+
+GAP_DECOMPOSITION_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
+
+def decompose_enoe_od_gap(model_with_education, model_without_education, enoe_benchmark, od_informality, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, profile_features=GAP_DECOMPOSITION_FEATURES):
+    """Direct standardization of the ENOE benchmark to the OD covariate profile.
+
+    Steps: ENOE observed rate → ENOE rate predicted by the shipped model (model bias on ENOE) → the same two rates after
+    reweighting the ENOE rows to the OD profile on ``profile_features`` (composition effect; OD's sector is
+    ``sector_final``) → OD expected rate. The last difference is what composition and model bias do not explain
+    (sector imputation, unsupported levels, non-response). Returns ``(table, reweighting_diagnostics)``.
+    """
+    enoe = enoe_benchmark.reset_index(drop=True).copy()
+    od_profile = od_informality.copy()
+    od_profile["sector"] = od_profile["sector_final"]
+    od_profile.loc[~od_profile["municipio"].isin(set(enoe["municipio"])), "municipio"] = NO_ESPECIFICADO
+    reweighted, diagnostics = reweight_to_target_profile(enoe, od_profile, profile_features, "survey_weight", "expansion_factor")
+
+    def rates(frame):
+        missing_education = identify_missing_category(frame["escolaridad"])
+        probability = np.empty(len(frame))
+        if (~missing_education).any():
+            probability[np.flatnonzero(~missing_education.to_numpy())], _ = predict_informal_probability(model_with_education, prepare_informality_features(frame[~missing_education], with_education_features), marginalize_unsupported=True)
+        if missing_education.any():
+            probability[np.flatnonzero(missing_education.to_numpy())], _ = predict_informal_probability(model_without_education, prepare_informality_features(frame[missing_education], without_education_features), marginalize_unsupported=True)
+        weights = frame["survey_weight"].astype(float).to_numpy()
+
+        return np.average(frame["informal"].astype(float), weights=weights), np.average(probability, weights=weights)
+
+    observed, predicted = rates(enoe)
+    observed_reweighted, predicted_reweighted = rates(reweighted)
+    od_weights = od_informality["expansion_factor"].astype(float)
+    od_expected = float((od_weights * od_informality["prob_informal"]).sum() / od_weights.sum())
+    steps = [
+        ("ENOE observed (metro benchmark)", observed, "—"),
+        ("ENOE predicted by the model", predicted, "model bias on ENOE"),
+        ("ENOE observed, reweighted to the OD profile", observed_reweighted, "composition (observed)"),
+        ("ENOE predicted, reweighted to the OD profile", predicted_reweighted, "composition (predicted)"),
+        ("OD expected informality", od_expected, "residual: sector imputation, unsupported levels, non-response"),
+    ]
+    table = pd.DataFrame(steps, columns=["step", "rate", "interpretation"])
+    table["difference_pp"] = table["rate"].diff() * 100
+    table.loc[3, "difference_pp"] = (predicted_reweighted - predicted) * 100  # composition on the predicted scale vs the unweighted prediction
+    table.loc[2, "difference_pp"] = (observed_reweighted - observed) * 100
+    table.loc[4, "difference_pp"] = (od_expected - predicted_reweighted) * 100
+
+    return table, diagnostics
