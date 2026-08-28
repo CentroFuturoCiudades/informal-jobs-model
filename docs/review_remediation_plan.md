@@ -8,12 +8,12 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 
 ## Phase 0 — Safety net ✅ done
 
-### 0.1 Freeze a second baseline
+### 0.1 Freeze a second baseline ✅ done
 - **Why:** `outputs_baseline/` holds the pre-migration run; phase 1 deliberately changes the training data, so we need the post-migration run (`849568a`) as the new reference to measure each fix's effect.
 - **Fix:** `cp -R outputs outputs_ref_849568a` (gitignored, like `outputs_baseline/`); make `compare_outputs` accept any two directories (it already does).
 - **Verify:** `python -m src.compare_outputs outputs_ref_849568a outputs` reports zero differences before phase 1 starts. *(done: stage-1/2 outputs byte-identical after adding the assertions)*
 
-### 0.2 Mapping-coverage assertions (fail loudly on drift)
+### 0.2 Mapping-coverage assertions (fail loudly on drift) ✅ done
 - **Why:** every stage-2 mapping dict falls back to `no_especificado`/`otro`, so an added or renamed source category (new ENOE quarter, eodgdl revision) silently degrades the data. Today the only legitimately unmapped label is OD `estado_civil_raw == "Otros (especifique)"`.
 - **Fix:** in `src/harmonize_enoe_od_dataframes.py`, add `_assert_mapping_covers(series, mapping, allowed_unmapped=frozenset())` and call it in every `harmonize_*` function. ENOE side: compare observed codes to `mxcensus.variables_enoe("sdem", gid)[col]["Categorías"]` where available. In stage 1, assert `set(OD_RENAMES) <= set(od.columns)` before renaming and that the `hab ⋈ viv` merge created no `_x/_y` suffixes; validate `period` against the quarters for which `ENOE_DWELLING_KEYS` is valid (2021t3–2025t2) or resolve the key from the loaded frame like `mxcensus._level_key` does.
 - **Verify:** pipeline runs unchanged on 2023t1; a unit-style check with a fake label raises. *(done: `assert_mapping_covers` in every harmonizer with explicit allow-lists — ENOE `e_con == 9`, OD `"Otros (especifique)"`; `assert_enoe_dwelling_key` compares the hard-coded key with mxcensus's resolved key instead of a period range; OD rename/merge asserts in stage 1.)*
