@@ -15,13 +15,20 @@ def load_mapping(name):
         return yaml.safe_load(handle)
 
 
-from .common import AGE_LABELS, HOUSEHOLD_SIZE_CAP, HOUSEHOLD_SIZE_LABELS, NO_ESPECIFICADO, load_config
+from .common import (
+    AGE_LABELS,
+    HOUSEHOLD_SIZE_CAP,
+    HOUSEHOLD_SIZE_LABELS,
+    NO_ESPECIFICADO,
+    load_config,
+)
 
 _HARMONIZATION = load_config("harmonization")  # see src/config/harmonization.yaml
 AGE_BINS = list(_HARMONIZATION["age"]["bins"]) + [np.inf]  # left-closed; last bin open
 ENOE_AGE_UNSPECIFIED = _HARMONIZATION["age"]["enoe_unspecified"]
 HOUSEHOLD_SIZE_BINS = list(_HARMONIZATION["household_size"]["bins"]) + [np.inf]
 INFORMAL_SECTOR_TUE2 = list(_HARMONIZATION["informal_sector_tue2"])
+
 
 def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
     """Fail loudly when a source category is neither mapped nor explicitly allowed to fall through.
@@ -32,30 +39,58 @@ def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
     observed = set(pd.Series(values).dropna().unique())
     unmapped = observed - set(mapping) - set(allowed_unmapped)
     if unmapped:
-        raise ValueError(f"Unmapped categories in {name or getattr(values, 'name', 'series')}: {sorted(map(str, unmapped))}")
+        raise ValueError(
+            f"Unmapped categories in {name or getattr(values, 'name', 'series')}: {sorted(map(str, unmapped))}"
+        )
+
 
 # DATA TYPES
 def prepare_enoe_data_types(enoe):
     """Stage 1 already delivers Int64 codes and float weights; only verify, so the cast lives in one place."""
     enoe = enoe.copy()
     columns = load_config("enoe")["columns"]
-    code_columns = [column for group, names in columns.items() if group != "weights" for column in names]
-    not_integer = [column for column in code_columns if not pd.api.types.is_integer_dtype(enoe[column])]
-    assert not not_integer, f"ENOE code columns must be integer-typed (stage 1 casts them): {not_integer}"
-    assert pd.api.types.is_float_dtype(enoe["survey_weight"]) and enoe["survey_weight"].notna().all(), "survey_weight must be float without missing values"
+    code_columns = [
+        column
+        for group, names in columns.items()
+        if group != "weights"
+        for column in names
+    ]
+    not_integer = [
+        column
+        for column in code_columns
+        if not pd.api.types.is_integer_dtype(enoe[column])
+    ]
+    assert not not_integer, (
+        f"ENOE code columns must be integer-typed (stage 1 casts them): {not_integer}"
+    )
+    assert (
+        pd.api.types.is_float_dtype(enoe["survey_weight"])
+        and enoe["survey_weight"].notna().all()
+    ), "survey_weight must be float without missing values"
 
     return enoe
+
 
 def prepare_od_data_types(od):
     od = od.copy()
     numeric_columns = ["edad", "expansion_factor"]
     for column in numeric_columns:
         od[column] = pd.to_numeric(od[column], errors="coerce").astype("Int64")
-    text_columns = ["sexo_nacimiento", "ocupacion_raw", "escolaridad_raw", "municipio_raw", "estado_civil_raw", "parentesco_raw", "giro_empresa", "dwelling_size"]
+    text_columns = [
+        "sexo_nacimiento",
+        "ocupacion_raw",
+        "escolaridad_raw",
+        "municipio_raw",
+        "estado_civil_raw",
+        "parentesco_raw",
+        "giro_empresa",
+        "dwelling_size",
+    ]
     for column in text_columns:
         od[column] = od[column].astype("string").str.strip()
 
     return od
+
 
 # GENDER
 def harmonize_enoe_gender(enoe):
@@ -65,12 +100,18 @@ def harmonize_enoe_gender(enoe):
 
     return enoe
 
+
 def harmonize_od_gender(od):
     od = od.copy()
     assert_mapping_covers(od["sexo_nacimiento"], {"Hombres", "Mujeres"})
-    od["genero"] = od["sexo_nacimiento"].map({"Hombres": "H", "Mujeres": "F"}).fillna(NO_ESPECIFICADO)
+    od["genero"] = (
+        od["sexo_nacimiento"]
+        .map({"Hombres": "H", "Mujeres": "F"})
+        .fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # OCCUPATION
 def harmonize_enoe_occupation(enoe):
@@ -79,12 +120,13 @@ def harmonize_enoe_occupation(enoe):
         1: "trabajador",
         2: "trabajador",
         3: "independiente",
-        4: "sin_pago"  # trabajadores sin pago (unpaid family workers); ENOE-only level, the OD has no counterpart
+        4: "sin_pago",  # trabajadores sin pago (unpaid family workers); ENOE-only level, the OD has no counterpart
     }
     assert_mapping_covers(enoe["pos_ocu"], occupation_mapping)
     enoe["ocupacion"] = enoe["pos_ocu"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
 
     return enoe
+
 
 def harmonize_od_occupation(od):
     od = od.copy()
@@ -100,27 +142,40 @@ def harmonize_od_occupation(od):
         "Hogar": NO_ESPECIFICADO,
         "Estudiante": NO_ESPECIFICADO,
         "Jubilado o pensionado": NO_ESPECIFICADO,
-        "Desempleado": NO_ESPECIFICADO
+        "Desempleado": NO_ESPECIFICADO,
     }
     assert_mapping_covers(od["ocupacion_raw"], occupation_mapping)
-    od["ocupacion"] = od["ocupacion_raw"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
+    od["ocupacion"] = (
+        od["ocupacion_raw"].map(occupation_mapping).fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # AGE
 def harmonize_enoe_age(enoe):
     enoe = enoe.copy()
     enoe["edad_num"] = enoe["eda"].where(enoe["eda"] < ENOE_AGE_UNSPECIFIED)
-    enoe["edad_cat"] = pd.cut(enoe["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
+    enoe["edad_cat"] = (
+        pd.cut(enoe["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False)
+        .astype("string")
+        .fillna(NO_ESPECIFICADO)
+    )
 
     return enoe
+
 
 def harmonize_od_age(od):
     od = od.copy()
     od["edad_num"] = od["edad"].copy()
-    od["edad_cat"] = pd.cut(od["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
+    od["edad_cat"] = (
+        pd.cut(od["edad_num"], bins=AGE_BINS, labels=AGE_LABELS, right=False)
+        .astype("string")
+        .fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # EDUCATION
 def harmonize_enoe_education(enoe):
@@ -136,12 +191,15 @@ def harmonize_enoe_education(enoe):
         7: "licenciatura",
         8: "postgrado",
         9: "postgrado",
-        99: NO_ESPECIFICADO
+        99: NO_ESPECIFICADO,
     }
     assert_mapping_covers(enoe["cs_p13_1"], education_mapping)
-    enoe["escolaridad"] = enoe["cs_p13_1"].map(education_mapping).fillna(NO_ESPECIFICADO)
+    enoe["escolaridad"] = (
+        enoe["cs_p13_1"].map(education_mapping).fillna(NO_ESPECIFICADO)
+    )
 
     return enoe
+
 
 def harmonize_od_education(od):
     od = od.copy()
@@ -157,12 +215,15 @@ def harmonize_od_education(od):
         "Carrera técnica con preparatoria terminada": "carrera_tecnica_o_preparatoria",
         "Licenciatura o profesional": "licenciatura",
         "Maestría o doctorado": "postgrado",
-        "No sabe": NO_ESPECIFICADO
+        "No sabe": NO_ESPECIFICADO,
     }
     assert_mapping_covers(od["escolaridad_raw"], education_mapping)
-    od["escolaridad"] = od["escolaridad_raw"].map(education_mapping).fillna(NO_ESPECIFICADO)
+    od["escolaridad"] = (
+        od["escolaridad_raw"].map(education_mapping).fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # MUNICIPALITY
 def harmonize_enoe_municipality(enoe):
@@ -176,12 +237,18 @@ def harmonize_enoe_municipality(enoe):
         70: "el_salto",
         51: "juanacatlan",
         44: "ixtlahuacan_membrillos",
-        124: "zapotlanejo"
+        124: "zapotlanejo",
     }
     # Codes outside the metro area are "otro" (Jalisco outside the AMG); a missing/masked code is not.
-    enoe["municipio"] = enoe["mun"].map(municipality_mapping).fillna("otro").where(enoe["mun"].notna(), NO_ESPECIFICADO)
+    enoe["municipio"] = (
+        enoe["mun"]
+        .map(municipality_mapping)
+        .fillna("otro")
+        .where(enoe["mun"].notna(), NO_ESPECIFICADO)
+    )
 
     return enoe
+
 
 def harmonize_od_municipality(od):
     od = od.copy()
@@ -194,10 +261,15 @@ def harmonize_od_municipality(od):
         "El Salto": "el_salto",
         "Juanacatlán": "juanacatlan",
         "Ixtlahuacán de los Membrillos": "ixtlahuacan_membrillos",
-        "Zapotlanejo": "zapotlanejo"
+        "Zapotlanejo": "zapotlanejo",
     }
     assert_mapping_covers(od["municipio_raw"], municipality_mapping)
-    od["municipio"] = od["municipio_raw"].map(municipality_mapping).fillna("otro").where(od["municipio_raw"].notna(), NO_ESPECIFICADO)
+    od["municipio"] = (
+        od["municipio_raw"]
+        .map(municipality_mapping)
+        .fillna("otro")
+        .where(od["municipio_raw"].notna(), NO_ESPECIFICADO)
+    )
 
     return od
 
@@ -211,12 +283,17 @@ def harmonize_enoe_marital_status(enoe):
         3: "divorciado",
         4: "viudo",
         5: "casado",
-        6: "soltero"
+        6: "soltero",
     }
-    assert_mapping_covers(enoe["e_con"], marital_status_mapping, allowed_unmapped={9})  # 9 = no sabe
-    enoe["estado_civil"] = enoe["e_con"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
+    assert_mapping_covers(
+        enoe["e_con"], marital_status_mapping, allowed_unmapped={9}
+    )  # 9 = no sabe
+    enoe["estado_civil"] = (
+        enoe["e_con"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
+    )
 
     return enoe
+
 
 def harmonize_od_marital_status(od):
     od = od.copy()
@@ -226,12 +303,19 @@ def harmonize_od_marital_status(od):
         "Unión libre": "union_libre",
         "Viudo": "viudo",
         "Separado": "separado",
-        "Divorciado": "divorciado"
+        "Divorciado": "divorciado",
     }
-    assert_mapping_covers(od["estado_civil_raw"], marital_status_mapping, allowed_unmapped={"Otros (especifique)"})
-    od["estado_civil"] = od["estado_civil_raw"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
+    assert_mapping_covers(
+        od["estado_civil_raw"],
+        marital_status_mapping,
+        allowed_unmapped={"Otros (especifique)"},
+    )
+    od["estado_civil"] = (
+        od["estado_civil_raw"].map(marital_status_mapping).fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # HOUSEHOLD RELATIONSHIP
 def harmonize_enoe_relationship(enoe):
@@ -242,13 +326,16 @@ def harmonize_enoe_relationship(enoe):
         3: "hijo",
         4: "otro_parentesco",
         5: "sin_parentesco",
-        6: "sin_parentesco"
+        6: "sin_parentesco",
     }
     relationship_code = enoe["par_c"] // 100
     assert_mapping_covers(relationship_code, relationship_mapping, name="par_c // 100")
-    enoe["parentesco"] = relationship_code.map(relationship_mapping).fillna(NO_ESPECIFICADO)
+    enoe["parentesco"] = relationship_code.map(relationship_mapping).fillna(
+        NO_ESPECIFICADO
+    )
 
     return enoe
+
 
 def harmonize_od_relationship(od):
     od = od.copy()
@@ -259,30 +346,59 @@ def harmonize_od_relationship(od):
         "Hijo": "hijo",
         "Nieto": "otro_parentesco",
         "Otro parentesco": "otro_parentesco",
-        "Sin parentesco": "sin_parentesco"
+        "Sin parentesco": "sin_parentesco",
     }
 
     assert_mapping_covers(od["parentesco_raw"], relationship_mapping)
-    od["parentesco"] = od["parentesco_raw"].map(relationship_mapping).fillna(NO_ESPECIFICADO)
+    od["parentesco"] = (
+        od["parentesco_raw"].map(relationship_mapping).fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # HOUSEHOLD SIZE
 def harmonize_enoe_household_size(enoe):
     enoe = enoe.copy()
     enoe["tamano_viv_num"] = enoe["dwelling_size"].clip(upper=HOUSEHOLD_SIZE_CAP)
-    enoe["tamano_viv_cat"] = pd.cut(enoe["tamano_viv_num"], bins=HOUSEHOLD_SIZE_BINS, labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
+    enoe["tamano_viv_cat"] = (
+        pd.cut(
+            enoe["tamano_viv_num"],
+            bins=HOUSEHOLD_SIZE_BINS,
+            labels=HOUSEHOLD_SIZE_LABELS,
+            right=False,
+        )
+        .astype("string")
+        .fillna(NO_ESPECIFICADO)
+    )
 
     return enoe
+
 
 def harmonize_od_household_size(od):
     od = od.copy()
     household_size = od["dwelling_size"].replace({"10 y +": "10", "10 y más": "10"})
-    assert_mapping_covers(household_size, [str(n) for n in range(1, 11)], name="dwelling_size")
-    od["tamano_viv_num"] = pd.to_numeric(household_size, errors="coerce").astype("Int64").clip(upper=HOUSEHOLD_SIZE_CAP)
-    od["tamano_viv_cat"] = pd.cut(od["tamano_viv_num"], bins=HOUSEHOLD_SIZE_BINS, labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
+    assert_mapping_covers(
+        household_size, [str(n) for n in range(1, 11)], name="dwelling_size"
+    )
+    od["tamano_viv_num"] = (
+        pd.to_numeric(household_size, errors="coerce")
+        .astype("Int64")
+        .clip(upper=HOUSEHOLD_SIZE_CAP)
+    )
+    od["tamano_viv_cat"] = (
+        pd.cut(
+            od["tamano_viv_num"],
+            bins=HOUSEHOLD_SIZE_BINS,
+            labels=HOUSEHOLD_SIZE_LABELS,
+            right=False,
+        )
+        .astype("string")
+        .fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 # ECONOMIC SECTOR
 def harmonize_enoe_sector(enoe):
@@ -294,6 +410,7 @@ def harmonize_enoe_sector(enoe):
 
     return enoe
 
+
 def harmonize_od_sector(od):
     od = od.copy()
     sector_mapping = load_mapping("sector")["od_giro_empresa"]
@@ -303,6 +420,7 @@ def harmonize_od_sector(od):
 
     return od
 
+
 # PLACE OF WORK (review item 4.2)
 def harmonize_enoe_workplace(enoe):
     """``lugar_trabajo`` from COE1 section IV. Levels shared with the OD's work-trip destination type:
@@ -311,14 +429,20 @@ def harmonize_enoe_workplace(enoe):
     otra_vivienda (employer's or client's home, domestic workers), otro_o_sin_local (field, itinerant, vehicle, own
     home, construction site, visiting clients) and no_especificado."""
     enoe = enoe.copy()
-    p4e = pd.to_numeric(enoe["p4e"], errors="coerce"); p4f = pd.to_numeric(enoe["p4f"], errors="coerce"); p4h = pd.to_numeric(enoe["p4h"], errors="coerce")
+    p4e = pd.to_numeric(enoe["p4e"], errors="coerce")
+    p4f = pd.to_numeric(enoe["p4f"], errors="coerce")
+    p4h = pd.to_numeric(enoe["p4h"], errors="coerce")
     commerce = enoe["scian"].isin([6, 7])
     premises = p4h.isin([1, 2]) | p4e.isin([1, 2, 3])
     p4b = pd.to_numeric(enoe["p4b"], errors="coerce")
     lugar = pd.Series(NO_ESPECIFICADO, index=enoe.index, dtype=object)
-    lugar[p4b.isin([2, 3])] = "establecimiento"      # institutions (schools, hospitals, government, non-profits) skip 4e-4h
-    lugar[p4b.eq(1)] = "otro_o_sin_local"            # agricultural activity (field)
-    lugar[premises] = np.where(commerce[premises], "comercio_o_puesto", "establecimiento")
+    lugar[p4b.isin([2, 3])] = (
+        "establecimiento"  # institutions (schools, hospitals, government, non-profits) skip 4e-4h
+    )
+    lugar[p4b.eq(1)] = "otro_o_sin_local"  # agricultural activity (field)
+    lugar[premises] = np.where(
+        commerce[premises], "comercio_o_puesto", "establecimiento"
+    )
     lugar[p4f.isin([3, 9, 10])] = "comercio_o_puesto"
     lugar[p4f.eq(8) | enoe["p4"].eq(3)] = "otra_vivienda"
     lugar[p4f.isin([1, 2, 4, 5, 6, 7, 11]) | p4h.isin([3, 4])] = "otro_o_sin_local"
@@ -326,21 +450,33 @@ def harmonize_enoe_workplace(enoe):
 
     return enoe
 
+
 OD_WORKPLACE_MAPPING = {
-    "Fábrica o taller": "establecimiento", "Oficina": "establecimiento", "Hospital, clínica, consultorio, laboratorio clínico": "establecimiento",
-    "Escuela": "establecimiento", "Restaurante, bar, cafetería": "establecimiento", "Centro cultural o área recreativa": "establecimiento",
-    "Deportivo, gimnasio": "establecimiento", "Comercio, mercado, tienda o centro comercial": "comercio_o_puesto",
-    "Otra vivienda": "otra_vivienda", "Su casa": "otro_o_sin_local", "Otros (especifique)": "otro_o_sin_local",
+    "Fábrica o taller": "establecimiento",
+    "Oficina": "establecimiento",
+    "Hospital, clínica, consultorio, laboratorio clínico": "establecimiento",
+    "Escuela": "establecimiento",
+    "Restaurante, bar, cafetería": "establecimiento",
+    "Centro cultural o área recreativa": "establecimiento",
+    "Deportivo, gimnasio": "establecimiento",
+    "Comercio, mercado, tienda o centro comercial": "comercio_o_puesto",
+    "Otra vivienda": "otra_vivienda",
+    "Su casa": "otro_o_sin_local",
+    "Otros (especifique)": "otro_o_sin_local",
 }
+
 
 def harmonize_od_workplace(od):
     """``lugar_trabajo`` from the destination type of the work trips; workers without a work trip on the survey day
     (home-based, mobile, or simply did not travel that day) are ``no_especificado`` and are marginalized at scoring."""
     od = od.copy()
     assert_mapping_covers(od["destino_trabajo"], OD_WORKPLACE_MAPPING)
-    od["lugar_trabajo"] = od["destino_trabajo"].map(OD_WORKPLACE_MAPPING).fillna(NO_ESPECIFICADO)
+    od["lugar_trabajo"] = (
+        od["destino_trabajo"].map(OD_WORKPLACE_MAPPING).fillna(NO_ESPECIFICADO)
+    )
 
     return od
+
 
 def generate_enoe_informal_label(enoe):
     """``informal`` (INEGI `emp_ppal`) and its two components: ``informal_sector`` (informal-sector units, paid domestic
@@ -350,10 +486,15 @@ def generate_enoe_informal_label(enoe):
     assert_mapping_covers(enoe["emp_ppal"], {1, 2})
     enoe["informal"] = enoe["emp_ppal"].map({1: 1, 2: 0}).astype("Int64")
     in_informal_sector = enoe["tue2"].isin(INFORMAL_SECTOR_TUE2)
-    enoe["informal_sector"] = (enoe["informal"].eq(1) & in_informal_sector).astype("Int64")
-    enoe["informal_unprotected"] = (enoe["informal"].eq(1) & ~in_informal_sector).astype("Int64")
+    enoe["informal_sector"] = (enoe["informal"].eq(1) & in_informal_sector).astype(
+        "Int64"
+    )
+    enoe["informal_unprotected"] = (
+        enoe["informal"].eq(1) & ~in_informal_sector
+    ).astype("Int64")
 
     return enoe
+
 
 # COMPLETE HARMONIZATION
 def harmonize_enoe_dataframe(enoe):
@@ -371,6 +512,7 @@ def harmonize_enoe_dataframe(enoe):
     enoe = generate_enoe_informal_label(enoe)
 
     return enoe
+
 
 def harmonize_od_dataframe(od):
     od = prepare_od_data_types(od)

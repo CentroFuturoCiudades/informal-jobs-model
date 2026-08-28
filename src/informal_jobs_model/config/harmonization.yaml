@@ -1,7 +1,8 @@
-# Harmonized-variable definitions shared by both surveys and by every stage from 2 on. Loaded via
-# src.load_config("harmonization") in src/common.py and src/harmonize_enoe_od_dataframes.py. Source-code -> harmonized
-# value mappings live in src/mappings/*.yaml and in the harmonize_* functions; this file holds the *targets* and
-# numeric cut points.
+# Harmonized-variable definitions shared by both surveys and by every stage from 2 on.
+# Loaded via src.load_config("harmonization") in src/common.py and 
+# src/harmonize_enoe_od_dataframes.py.
+# Source-code -> harmonized value mappings live in src/mappings/*.yaml and in the
+# harmonize_* functions; this file holds the *targets* and numeric cut points.
 
 missing_label: no_especificado   # NO_ESPECIFICADO: the literal used for missing/unknown categories everywhere
 sector_classes: [comercio, gobierno_otro_agricultura, manufactura_construccion, servicios_transporte]
