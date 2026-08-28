@@ -2,9 +2,7 @@ import pandas as pd
 
 from .common import AMG_MUNICIPALITIES, HARMONIZED_FEATURES, identify_missing_category
 
-TARGET_MUNICIPALITIES = AMG_MUNICIPALITIES
-
-def filter_common_geography(enoe, od, target_municipalities=TARGET_MUNICIPALITIES):
+def filter_common_geography(enoe, od, target_municipalities=AMG_MUNICIPALITIES):
     enoe = enoe.copy()
     od = od.copy()
     

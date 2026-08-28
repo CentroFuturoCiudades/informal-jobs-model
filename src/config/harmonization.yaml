@@ -1,0 +1,47 @@
+# Harmonized-variable definitions shared by both surveys and by every stage from 2 on. Loaded via
+# src.load_config("harmonization") in src/common.py and src/harmonize_enoe_od_dataframes.py. Source-code -> harmonized
+# value mappings live in src/mappings/*.yaml and in the harmonize_* functions; this file holds the *targets* and
+# numeric cut points.
+
+missing_label: no_especificado   # NO_ESPECIFICADO: the literal used for missing/unknown categories everywhere
+sector_classes: [comercio, gobierno_otro_agricultura, manufactura_construccion, servicios_transporte]
+
+# The nine municipalities of the Guadalajara Metropolitan Area as covered by the OD survey (eodgdl schema). ENOE
+# workers elsewhere in Jalisco get municipio = "otro"; stages 3 and 5 restrict benchmarks to these.
+amg_municipalities: [guadalajara, zapopan, tlaquepaque, tlajomulco, tonala, el_salto, juanacatlan, ixtlahuacan_membrillos, zapotlanejo]
+
+age:
+  # Left-closed bins for edad_cat; the last bin is open (65 and over).
+  bins: [0, 3, 5, 6, 8, 12, 15, 18, 25, 50, 60, 65]
+  # Labels are quoted: YAML would otherwise read 0_2 as the integer 2 (underscore digit separators).
+  labels: ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_49", "50_59", "60_64", "65_y_mas"]
+  enoe_unspecified: 98   # INEGI `eda`: 98 = "no especificada (12 años y más)", 99 = "no especificada (0-11 años)"
+
+household_size:
+  cap: 10                # tamano_viv_num is capped here in both surveys (the OD answer stops at "10 y +")
+  # Collapsed at 7+: the ENOE roster count and the OD self-report diverge 5x above 8 persons.
+  bins: [1, 2, 3, 4, 5, 6, 7]
+  labels: ["1", "2", "3", "4", "5", "6", "7_y_mas"]
+
+household_roster:
+  workers_cap: 4         # hogar_trabajadores_cat: 0..3, 4_y_mas
+  children_cap: 2        # hogar_ninos_cat: 0, 1, 2_y_mas
+
+# ENOE `tue2` codes that define the informal-sector component of the informality label:
+# 5 = sector informal, 6 = trabajo doméstico remunerado, 7 = agricultura de subsistencia.
+informal_sector_tue2: [5, 6, 7]
+
+# Fixed levels of the harmonized categorical features (build_category_levels). Levels of raw OD columns used
+# directly by the sector model (ocupacion_raw, trabajo_semana_pasada, centralidad, destino_trabajo, modo_trabajo,
+# n_autos_camionetas) come from the eodgdl pandera schemas; destino_ambito from config/od.yaml; municipio, edad_cat,
+# tamano_viv_cat and sector from the entries above. The missing label is appended to every feature.
+category_levels:
+  genero: [H, F]
+  ocupacion: [trabajador, independiente, sin_pago]
+  escolaridad: [sin_instruccion, primaria_o_secundaria, carrera_tecnica_o_preparatoria, licenciatura, postgrado]
+  estado_civil: [union_libre, separado, divorciado, viudo, casado, soltero]
+  parentesco: [jefe_del_hogar, conyuge, hijo, otro_parentesco, sin_parentesco]
+  lugar_trabajo: [establecimiento, comercio_o_puesto, otra_vivienda, otro_o_sin_local]
+  hogar_trabajadores_cat: ["0", "1", "2", "3", 4_y_mas]
+  hogar_ninos_cat: ["0", "1", 2_y_mas]
+  weekend_dest_trabajar: [Sí, "No"]

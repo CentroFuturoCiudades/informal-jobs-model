@@ -1,0 +1,26 @@
+# Feature lists of the modelling stages (3-5). Loaded via src.load_config("models"). The "robust" (without
+# education) specifications are derived in code by dropping `escolaridad` from the corresponding list.
+
+# Harmonized attributes shared by both surveys (stage 2 output); every feature list below is a subset of these
+# plus the raw OD columns.
+harmonized_features: [genero, ocupacion, edad_num, edad_cat, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector, lugar_trabajo, hogar_trabajadores_cat, hogar_ninos_cat]
+# Numeric model features (everything else is categorical). The dest_share_<sector> columns are added in code.
+numeric_features: [edad_num, dest_establecimientos_log, dest_share_grandes]
+
+sector:                      # stage 4: OD-trained economic-sector model
+  base: [genero, edad_num, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, ocupacion_raw, trabajo_semana_pasada, centralidad]
+  # Work-trip destination features (review item 4.4): destination type, its ámbito and the DENUE establishment mix
+  # at the destination AGEB/locality (dest_share_<sector> appended in code). OD-only, fine here.
+  destination: [destino_trabajo, destino_ambito, dest_establecimientos_log, dest_share_grandes]
+  # Further OD-only features (follow-up A): mode of the work trip, weekend work destination, household vehicles.
+  mobility: [modo_trabajo, weekend_dest_trabajar, n_autos_camionetas]
+  # Covariate-shift sensitivity profile between known- and unknown-sector workers (review item 2.5).
+  shift_profile: [genero, edad_num, municipio, estado_civil, parentesco, tamano_viv_cat, ocupacion_raw, trabajo_semana_pasada]
+
+informality:                 # stage 5: ENOE-trained informality model
+  features: [genero, ocupacion, edad_num, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector, lugar_trabajo]
+  # Masked evaluation of the without-education model on the OD non-respondent profile (review item 2.4).
+  od_profile: [genero, ocupacion, edad_num, municipio, estado_civil, parentesco, tamano_viv_cat]
+  gap_decomposition: [genero, ocupacion, edad_num, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector]
+  # Two components of informality (follow-up diagnostic): informal-sector units vs unprotected employment elsewhere.
+  components: [informal_sector, informal_unprotected]

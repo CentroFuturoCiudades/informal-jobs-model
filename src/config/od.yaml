@@ -1,0 +1,41 @@
+# Stage 1 configuration for the Origin-Destination survey side (eodgdl).
+# Loaded by src/generate_enoe_od_dataframes.py and src/destination_features.py
+# via src.load_config("od").
+
+employed_categories: # `trabajo_semana_pasada` levels that define a worker
+  - Tiempo completo
+  - Medio tiempo
+  - Tenía trabajo, pero no trabajó
+dwelling_columns: [
+    municipio,
+    ageb,
+    centralidad,
+    personas_en_vivienda,
+    n_autos_camionetas,
+  ] # from `viv`
+# `motivo_viaje` of the trips whose destination describes the workplace
+work_trip_purpose: Trabajar
+
+# Raw eodgdl columns whose names collide with the harmonized columns created
+# in stage 2 get a `_raw` suffix;
+# the unsuffixed name is always the harmonized one.
+raw_column_renames:
+  ocupacion: ocupacion_raw
+  escolaridad: escolaridad_raw
+  municipio: municipio_raw
+  estado_civil: estado_civil_raw
+  parentesco: parentesco_raw
+renames:
+  ponderador: expansion_factor
+  personas_en_vivienda: dwelling_size
+
+# Work-trip destination features (review item 4.4):
+# DENUE establishment mix at the destination AGEB or locality.
+destination:
+  state_code: 14 # DENUE and Marco Geoestadístico state (Jalisco)
+  # November 2022: the DENUE snapshot closest to (and before) the OD fieldwork of Jan-Apr 2023
+  denue_release: "202211"
+  ambito_levels:
+    [ageb_urbana, localidad_rural, aeropuerto, fuera_zm, desconocido]
+  # DENUE `per_ocu` strata counted as small
+  small_establishment_levels: ["0 a 5 personas", "6 a 10 personas"]

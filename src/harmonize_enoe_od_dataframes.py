@@ -15,9 +15,15 @@ def load_mapping(name):
         return yaml.safe_load(handle)
 
 
-from .common import AGE_LABELS, HOUSEHOLD_SIZE_CAP, HOUSEHOLD_SIZE_LABELS, NO_ESPECIFICADO
+from .common import AGE_LABELS, HOUSEHOLD_SIZE_CAP, HOUSEHOLD_SIZE_LABELS, NO_ESPECIFICADO, load_config
 
-AGE_BINS = [0, 3, 5, 6, 8, 12, 15, 18, 25, 50, 60, 65, np.inf]
+_HARMONIZATION = load_config("harmonization")  # see src/config/harmonization.yaml
+AGE_BINS = list(_HARMONIZATION["age"]["bins"]) + [np.inf]  # left-closed; last bin open
+ENOE_AGE_UNSPECIFIED = _HARMONIZATION["age"]["enoe_unspecified"]
+HOUSEHOLD_SIZE_BINS = list(_HARMONIZATION["household_size"]["bins"]) + [np.inf]
+HOUSEHOLD_WORKERS_CAP = _HARMONIZATION["household_roster"]["workers_cap"]
+HOUSEHOLD_CHILDREN_CAP = _HARMONIZATION["household_roster"]["children_cap"]
+INFORMAL_SECTOR_TUE2 = list(_HARMONIZATION["informal_sector_tue2"])
 
 def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
     """Fail loudly when a source category is neither mapped nor explicitly allowed to fall through.
@@ -34,7 +40,8 @@ def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
 def prepare_enoe_data_types(enoe):
     """Stage 1 already delivers Int64 codes and float weights; only verify, so the cast lives in one place."""
     enoe = enoe.copy()
-    code_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_stratum", "survey_psu", "p4", "p4b", "p4e", "p4f", "p4h", "hogar_trabajadores", "hogar_ninos_6_11", "tue2", "seg_soc"]
+    columns = load_config("enoe")["columns"]
+    code_columns = [column for group, names in columns.items() if group != "weights" for column in names]
     not_integer = [column for column in code_columns if not pd.api.types.is_integer_dtype(enoe[column])]
     assert not not_integer, f"ENOE code columns must be integer-typed (stage 1 casts them): {not_integer}"
     assert pd.api.types.is_float_dtype(enoe["survey_weight"]) and enoe["survey_weight"].notna().all(), "survey_weight must be float without missing values"
@@ -103,8 +110,6 @@ def harmonize_od_occupation(od):
     return od
 
 # AGE
-ENOE_AGE_UNSPECIFIED = 98  # INEGI: 98 = "no especificada (12 años y más)", 99 = "no especificada (0-11 años)"
-
 def harmonize_enoe_age(enoe):
     enoe = enoe.copy()
     enoe["edad_num"] = enoe["eda"].where(enoe["eda"] < ENOE_AGE_UNSPECIFIED)
@@ -268,7 +273,7 @@ def harmonize_od_relationship(od):
 def harmonize_enoe_household_size(enoe):
     enoe = enoe.copy()
     enoe["tamano_viv_num"] = enoe["dwelling_size"].clip(upper=HOUSEHOLD_SIZE_CAP)
-    enoe["tamano_viv_cat"] = pd.cut(enoe["tamano_viv_num"], bins=[1, 2, 3, 4, 5, 6, 7, np.inf], labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
+    enoe["tamano_viv_cat"] = pd.cut(enoe["tamano_viv_num"], bins=HOUSEHOLD_SIZE_BINS, labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return enoe
 
@@ -277,7 +282,7 @@ def harmonize_od_household_size(od):
     household_size = od["dwelling_size"].replace({"10 y +": "10", "10 y más": "10"})
     assert_mapping_covers(household_size, [str(n) for n in range(1, 11)], name="dwelling_size")
     od["tamano_viv_num"] = pd.to_numeric(household_size, errors="coerce").astype("Int64").clip(upper=HOUSEHOLD_SIZE_CAP)
-    od["tamano_viv_cat"] = pd.cut(od["tamano_viv_num"], bins=[1, 2, 3, 4, 5, 6, 7, np.inf], labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
+    od["tamano_viv_cat"] = pd.cut(od["tamano_viv_num"], bins=HOUSEHOLD_SIZE_BINS, labels=HOUSEHOLD_SIZE_LABELS, right=False).astype("string").fillna(NO_ESPECIFICADO)
 
     return od
 
@@ -342,12 +347,10 @@ def harmonize_od_workplace(od):
 # HOUSEHOLD ROSTER (review item 4.3)
 def harmonize_household_roster(frame):
     frame = frame.copy()
-    frame["hogar_trabajadores_cat"] = pd.to_numeric(frame["hogar_trabajadores"], errors="coerce").clip(upper=4).astype("Int64").astype("string").replace({"4": "4_y_mas"}).fillna(NO_ESPECIFICADO)
-    frame["hogar_ninos_cat"] = pd.to_numeric(frame["hogar_ninos_6_11"], errors="coerce").clip(upper=2).astype("Int64").astype("string").replace({"2": "2_y_mas"}).fillna(NO_ESPECIFICADO)
+    frame["hogar_trabajadores_cat"] = pd.to_numeric(frame["hogar_trabajadores"], errors="coerce").clip(upper=HOUSEHOLD_WORKERS_CAP).astype("Int64").astype("string").replace({str(HOUSEHOLD_WORKERS_CAP): f"{HOUSEHOLD_WORKERS_CAP}_y_mas"}).fillna(NO_ESPECIFICADO)
+    frame["hogar_ninos_cat"] = pd.to_numeric(frame["hogar_ninos_6_11"], errors="coerce").clip(upper=HOUSEHOLD_CHILDREN_CAP).astype("Int64").astype("string").replace({str(HOUSEHOLD_CHILDREN_CAP): f"{HOUSEHOLD_CHILDREN_CAP}_y_mas"}).fillna(NO_ESPECIFICADO)
 
     return frame
-
-INFORMAL_SECTOR_TUE2 = [5, 6, 7]  # tue2: 5 = sector informal, 6 = trabajo doméstico remunerado, 7 = agricultura de subsistencia
 
 def generate_enoe_informal_label(enoe):
     """``informal`` (INEGI `emp_ppal`) and its two components: ``informal_sector`` (informal-sector units, paid domestic

@@ -1,19 +1,31 @@
 """Shared constants and helpers used by more than one pipeline stage."""
+import functools
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import yaml
 
-NO_ESPECIFICADO = "no_especificado"
-SECTOR_CLASSES = ["comercio", "gobierno_otro_agricultura", "manufactura_construccion", "servicios_transporte"]
-AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_49", "50_59", "60_64", "65_y_mas"]
-# The nine municipalities of the Guadalajara Metropolitan Area as covered by the OD survey (eodgdl schema).
-AMG_MUNICIPALITIES = ["guadalajara", "zapopan", "tlaquepaque", "tlajomulco", "tonala", "el_salto", "juanacatlan", "ixtlahuacan_membrillos", "zapotlanejo"]
-NUMERIC_FEATURES = ["edad_num", "dest_establecimientos_log", "dest_share_grandes", "dest_share_comercio", "dest_share_gobierno_otro_agricultura", "dest_share_manufactura_construccion", "dest_share_servicios_transporte"]
-# Harmonized attributes shared by both surveys (stage 2 output); the model feature lists are subsets of these.
-HARMONIZED_FEATURES = ["genero", "ocupacion", "edad_num", "edad_cat", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo", "hogar_trabajadores_cat", "hogar_ninos_cat"]
-# Household size is collapsed at 7+: the ENOE roster count and the OD self-report diverge 5x above 8 persons.
-HOUSEHOLD_SIZE_LABELS = ["1", "2", "3", "4", "5", "6", "7_y_mas"]
-HOUSEHOLD_SIZE_CAP = 10  # tamano_viv_num is capped here in both surveys (the OD answer stops at "10 y +")
+CONFIG_DIR = Path(__file__).parent / "config"
 
+
+@functools.cache
+def load_config(name):
+    """Load a pipeline configuration file (``src/config/<name>.yaml``) as a dict."""
+    with open(CONFIG_DIR / f"{name}.yaml", encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
+
+
+_HARMONIZATION = load_config("harmonization")  # see src/config/harmonization.yaml
+_MODELS = load_config("models")  # see src/config/models.yaml
+NO_ESPECIFICADO = _HARMONIZATION["missing_label"]
+SECTOR_CLASSES = list(_HARMONIZATION["sector_classes"])
+AMG_MUNICIPALITIES = list(_HARMONIZATION["amg_municipalities"])
+AGE_LABELS = [str(label) for label in _HARMONIZATION["age"]["labels"]]
+HOUSEHOLD_SIZE_LABELS = [str(label) for label in _HARMONIZATION["household_size"]["labels"]]
+HOUSEHOLD_SIZE_CAP = _HARMONIZATION["household_size"]["cap"]
+HARMONIZED_FEATURES = list(_MODELS["harmonized_features"])
+NUMERIC_FEATURES = list(_MODELS["numeric_features"]) + [f"dest_share_{sector}" for sector in SECTOR_CLASSES]
 
 def _eodgdl_levels(column):
     """Category labels eodgdl guarantees for a raw OD column (its pandera schema)."""
@@ -31,26 +43,18 @@ def build_category_levels():
     all-zero block that ``handle_unknown="ignore"`` would produce, and a value outside the list raises.
     """
     levels = {
-        "genero": ["H", "F"],
-        "ocupacion": ["trabajador", "independiente", "sin_pago"],
-        "escolaridad": ["sin_instruccion", "primaria_o_secundaria", "carrera_tecnica_o_preparatoria", "licenciatura", "postgrado"],
+        **{feature: [str(level) for level in values] for feature, values in _HARMONIZATION["category_levels"].items()},
         "municipio": AMG_MUNICIPALITIES + ["otro"],
-        "estado_civil": ["union_libre", "separado", "divorciado", "viudo", "casado", "soltero"],
-        "parentesco": ["jefe_del_hogar", "conyuge", "hijo", "otro_parentesco", "sin_parentesco"],
         "tamano_viv_cat": HOUSEHOLD_SIZE_LABELS,
         "edad_cat": AGE_LABELS,
         "sector": SECTOR_CLASSES,
-        "lugar_trabajo": ["establecimiento", "comercio_o_puesto", "otra_vivienda", "otro_o_sin_local"],
-        "hogar_trabajadores_cat": ["0", "1", "2", "3", "4_y_mas"],
-        "hogar_ninos_cat": ["0", "1", "2_y_mas"],
+        "destino_ambito": list(load_config("od")["destination"]["ambito_levels"]),
         # raw OD columns used directly by the sector model
         "ocupacion_raw": _eodgdl_levels("ocupacion"),
         "trabajo_semana_pasada": _eodgdl_levels("trabajo_semana_pasada"),
         "centralidad": _eodgdl_levels("centralidad"),
         "destino_trabajo": _eodgdl_levels("tipo_lugar_destino"),
-        "destino_ambito": ["ageb_urbana", "localidad_rural", "aeropuerto", "fuera_zm", "desconocido"],
         "modo_trabajo": _eodgdl_levels("modo_principal"),
-        "weekend_dest_trabajar": ["Sí", "No"],
         "n_autos_camionetas": _eodgdl_levels("n_autos_camionetas"),
     }
 

@@ -1,0 +1,85 @@
+# Stage 1 configuration for the ENOE side (mxcensus).
+# Loaded by src/generate_enoe_od_dataframes.py via src.load_config("enoe");
+# the module derives the composite key/column lists from these entries.
+
+# quarters pooled for training (review item 4.1);
+# survey weights are divided by their number
+periods:
+  - 2022t1
+  - 2022t2
+  - 2022t3
+  - 2022t4
+  - 2023t1
+  - 2023t2
+  - 2023t3
+  - 2023t4
+reference_period: 2023t1 # quarter matching the OD fieldwork
+state_code: 14 # Jalisco (`ent`)
+
+# Employed population: 
+# INEGI's `clase2 == 1` (working, or with a job but temporarily absent) 
+# on the analytical universe 
+#   r_def == 0 (definitive interview),
+#   c_res in {1, 3} (habitual or new resident) 
+#   and ages in [min_age, max_age].
+# INEGI publishes employment for ages 15+; 
+# 12 keeps the working 12-14 year olds that the OD survey also records.
+# 98 is INEGI's own upper bound: the sentinel "age unspecified (12+)", 
+# kept in the universe and turned into a missing age by stage 2.
+min_age: 12
+max_age: 98
+
+keys:
+  # must match the dwelling key mxcensus resolves for the period
+  dwelling: [tipo, mes_cal, cd_a, ent, con, v_sel] 
+  household: [n_hog, h_mud] # appended to the dwelling key
+  person: [n_ren] # appended to the household key
+  # tipo/mes_cal distinguish the panel visits of the same dwelling: 
+  # they are dropped from the cross-quarter
+  # household key used to group CV folds and bootstrap clusters across pooled quarters.
+  panel_visit: [tipo, mes_cal]
+
+# Raw mxcensus column -> pipeline name. 
+# est_d_tri is the sampling-design stratum (18 strata in Jalisco 2023t1);
+# est is INEGI's socio-economic stratum (4 levels).
+renames:
+  fac_tri: survey_weight
+  est_d_tri: survey_stratum
+  upm: survey_psu
+  est: estrato_socioeconomico
+
+# Output columns, in order, after the person keys.
+# Everything except `weights` is cast to Int64 (stage 2 maps integer codes);
+# weights stay float.
+columns:
+  design: [mun, survey_stratum, survey_psu]
+  weights: [survey_weight]
+  attributes:
+    [
+      estrato_socioeconomico,
+      sex,
+      pos_ocu,
+      scian,
+      eda,
+      cs_p13_1,
+      emp_ppal,
+      e_con,
+      par_c,
+      dwelling_size,
+    ]
+  # Workplace items (COE1 section IV, review item 4.2): 
+  # - p4 = type of unit (named business / unnamed / domestic-subordinate / abroad),
+  # - p4b = interviewer classification (agriculture / educational-health institution /
+  #                                      public or non-profit / private business),
+  # - p4e = premises of an independent business,
+  # - p4f = where the activity takes place when there are no premises,
+  # - p4h = where a subordinate works.
+  workplace: [p4, p4b, p4e, p4f, p4h]
+  # Roster aggregates (4.3) computed over the residents of the household
+  # (see compute_enoe_dwelling_size).
+  roster: [hogar_trabajadores, hogar_ninos_6_11]
+  # tue2 (type of economic unit incl. informal sector / paid domestic work / 
+  #                                   subsistence agriculture) 
+  # and seg_soc (access to social security) 
+  # split the informality label into its two components (follow-up diagnostic).
+  components: [tue2, seg_soc]

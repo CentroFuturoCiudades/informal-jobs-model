@@ -12,16 +12,16 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, load_config, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
-# Work-trip destination features (review item 4.4): the destination type, its ámbito, and the DENUE establishment mix
-# at the destination AGEB/locality. They are OD-only, which is fine here (the sector model trains on OD).
-OD_DESTINATION_FEATURES = ["destino_trabajo", "destino_ambito", "dest_establecimientos_log", "dest_share_grandes", "dest_share_comercio", "dest_share_gobierno_otro_agricultura", "dest_share_manufactura_construccion", "dest_share_servicios_transporte"]
-# Further OD-only features (follow-up A): mode of the work trip, weekend work destination, household vehicles.
-OD_MOBILITY_FEATURES = ["modo_trabajo", "weekend_dest_trabajar", "n_autos_camionetas"]
-OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES + OD_MOBILITY_FEATURES
-OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES + OD_MOBILITY_FEATURES
+# Feature lists come from src/config/models.yaml ("sector"); the robust specification drops escolaridad.
+_SECTOR = load_config("models")["sector"]
+OD_DESTINATION_FEATURES = list(_SECTOR["destination"]) + [f"dest_share_{sector}" for sector in SECTOR_CLASSES]
+OD_MOBILITY_FEATURES = list(_SECTOR["mobility"])
+OD_SECTOR_FEATURES = list(_SECTOR["base"]) + OD_DESTINATION_FEATURES + OD_MOBILITY_FEATURES
+OD_ROBUST_SECTOR_FEATURES = [f for f in OD_SECTOR_FEATURES if f != "escolaridad"]
+SECTOR_SHIFT_PROFILE_FEATURES = list(_SECTOR["shift_profile"])
 
 # Diagnostics
 def compare_sector_known_unknown_profiles(od, columns):
@@ -454,7 +454,6 @@ def calculate_probabilistic_sector_distribution(dataframe, weight_column="expans
     return distribution
 
 # Sensitivity of the imputation to the covariate shift between known- and unknown-sector workers (review item 2.5)
-SECTOR_SHIFT_PROFILE_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada"]
 
 def impute_sectors_under_covariate_shift(model_with_education, model_without_education, od, with_education_features=OD_SECTOR_FEATURES, without_education_features=OD_ROBUST_SECTOR_FEATURES, profile_features=SECTOR_SHIFT_PROFILE_FEATURES):
     """Re-impute after refitting the selected models on known-sector rows **reweighted to the unknown-sector profile**.

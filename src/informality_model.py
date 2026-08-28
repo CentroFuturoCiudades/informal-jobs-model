@@ -13,11 +13,16 @@ from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, load_config, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
-INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo"]
-INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo"]
+# Feature lists come from src/config/models.yaml ("informality"); the robust specification drops escolaridad.
+_INFORMALITY = load_config("models")["informality"]
+INFORMALITY_FEATURES = list(_INFORMALITY["features"])
+INFORMALITY_ROBUST_FEATURES = [f for f in INFORMALITY_FEATURES if f != "escolaridad"]
+OD_PROFILE_FEATURES = list(_INFORMALITY["od_profile"])
+GAP_DECOMPOSITION_FEATURES = list(_INFORMALITY["gap_decomposition"])
+INFORMALITY_COMPONENTS = list(_INFORMALITY["components"])
 from .generate_enoe_od_dataframes import ENOE_GROUP_KEYS as ENOE_HOUSEHOLD_COLUMNS  # cross-quarter household key: CV groups and bootstrap clusters
 
 # General helpers
@@ -290,7 +295,6 @@ def get_best_informality_model(model_summary, best_models):
 
 # Calibration
 # Masked evaluation of the without-education model on the OD non-respondent profile (review item 2.4)
-OD_PROFILE_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat"]
 
 def reweight_to_od_profile(enoe_rows, od_target_rows, features=OD_PROFILE_FEATURES, weight_column="survey_weight", random_state=42):
     """ENOE rows reweighted to the covariate profile of a target OD sub-population (see ``common.reweight_to_target_profile``)."""
@@ -602,7 +606,6 @@ def sample_informality(od, probability_column="prob_informal", random_state=42):
 
     return (rng.random(len(od)) < od[probability_column].to_numpy()).astype(int)
 
-GAP_DECOMPOSITION_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 
 def decompose_enoe_od_gap(model_with_education, model_without_education, enoe_benchmark, od_informality, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, profile_features=GAP_DECOMPOSITION_FEATURES):
     """Direct standardization of the ENOE benchmark to the OD covariate profile.
@@ -650,7 +653,6 @@ def decompose_enoe_od_gap(model_with_education, model_without_education, enoe_be
 
 
 # Two components of informality (follow-up diagnostic): informal-sector units vs unprotected employment elsewhere
-INFORMALITY_COMPONENTS = ["informal_sector", "informal_unprotected"]
 
 def fit_informality_components(enoe, model_with_education, model_without_education, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES):
     """Refit the selected specifications with each component of the informality label as the target.
