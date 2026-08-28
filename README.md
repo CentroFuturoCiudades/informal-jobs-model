@@ -51,7 +51,7 @@ The unit of analysis is the employed individuals or workers who appear in both d
 ### 2.1 Database structure
 In this step, we load the ENOE and OD tables through `mxcensus` and `eodgdl`. We then filter the data to work exclusively with employed individuals and with observations corresponding to the area of interest (Jalisco). For the ENOE, workers are INEGI's employed population (`clase2 == 1`: worked in the reference week or had a job and was temporarily absent) within the survey's analytical universe — definitive interview (`r_def == 0`), habitual or new residents (`c_res in {1, 3}`) — and ages 12 to 98 (INEGI reports employment for ages 15+; the floor is lowered to 12 because the OD survey records working 12–14 year olds). The original definition, persons who worked at least one hour in the reference week (COE1 `p1 == 1`), remains available as `employment_filter="p1"` in `src.generate_enoe_dataframe` and is a strict subset of the default (6,793 of 6,973 workers in 2023-T1; the 180 extra are employed persons temporarily absent from work). Additionally, for the ENOE, we calculate household size by counting the number of people associated with each dwelling using their identifiers, while for the OD, this information is imported directly from the dwelling table.
 
-To validate changes to the data sources, `src/compare_outputs.py` compares the outputs of a run against a reference copy (`uv run python -m src.compare_outputs outputs_baseline outputs`).
+To validate changes to the data sources, `src/compare_outputs.py` compares the outputs of a run against a reference copy (`uv run python -m src outputs_baseline outputs`).
 
 **Notebook**: `01_generate_enoe_od_base_dataframes.ipynb`
 **Module:** `generate_enoe_od_dataframes.py`
@@ -146,7 +146,7 @@ The main files for downstream applications are:
 
 For informality prediction, the relevant harmonized worker attributes are primarily:
 
-- `genero`
+- `genero` (sex at birth in both surveys; the OD also records `genero_identidad`, which is not used so that the attribute matches ENOE)
 - `ocupacion`
 - `edad_num`
 - `escolaridad`

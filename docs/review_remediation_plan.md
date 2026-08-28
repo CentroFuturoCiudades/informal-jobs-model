@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phases 0–2 done** (2026-08-27); Phase 3 planned. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phases 0–3 done** (2026-08-27). Phase 3 verified by a full 01→05 re-run: every output parquet identical to the pre-Phase-3 run. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -161,20 +161,24 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 
 ## Phase 3 — Code structure and robustness (no numeric change)
 
-### 3.1 `src/common.py`
+### 3.1 `src/common.py` ✅ done
 - Move the duplicated `SECTOR_CLASSES`, `identify_missing_category`, `normalize_sample_weights`, `normalize_predicted_probabilities` (rename to `validate_…` or make it actually renormalize), `ENOE_HOUSEHOLD_KEYS`, `AMG_MUNICIPALITIES`, harmonized-column list, `NO_ESPECIFICADO`, category lists (1.5). One normalization rule for "missing" (strip + lower) used by `identify_missing_category`, `prepare_*_features`, `calculate_missingness`. Keep "No sabe" as its own answer, distinct from item non-response.
 - Make `identify_missing_category` return numpy bool (`.fillna(False).astype(bool)`); explicit `NUMERIC_FEATURES` constant instead of `column == "edad_num"`; `zero_division=0` in tuning F1; build the scenario frame once in `predict_od_informality` instead of 4× `od.copy()`.
+- **Done (2026-08-27):** `src/common.py` holds the shared constants and helpers (`HARMONIZED_FEATURES`, `NUMERIC_FEATURES`, `identify_missing_category` used by the model stages *and* `calculate_missingness`, weight/probability normalizers, feature preparation, category levels, marginalization, calibration, selection, bootstrap); `ENOE_HOUSEHOLD_COLUMNS` imports `ENOE_HOUSEHOLD_KEYS`; `zero_division=0` in every F1 call; the informality scenario frame is built once per sector instead of copying the full OD frame; `impute_missing_sectors_hybrid` asserts the model classes and the known-sector classes against `SECTOR_CLASSES`. "No sabe" stays merged with non-response (changing it would alter outputs; noted in notebook 02).
 
-### 3.2 Self-contained model bundles
+### 3.2 Self-contained model bundles ✅ done
 - Fold `prepare_sector_features` / `prepare_informality_features` into the sklearn `Pipeline` (`FunctionTransformer`) so the joblibs work on raw harmonized frames; store `metadata` (best params, CV/test metrics, sklearn version, fitted categories, employment filter, ENOE period). Assert `set(model.classes_) == set(SECTOR_CLASSES)` in `impute_missing_sectors_hybrid`. Re-export everything public from `src/__init__.py` (`SECTOR_CLASSES`, `TARGET_MUNICIPALITIES`/`AMG_MUNICIPALITIES`, `NO_ESPECIFICADO`, `AGE_BINS`, `prepare_*_features`, `identify_missing_category`, …).
+- **Done (2026-08-27):** every pipeline starts with a `prepare` step (`FunctionTransformer(prepare_model_features)`), so the pickled bundles apply to a raw harmonized frame; bundles carry `category_levels`, `sector_classes`, `training_municipalities` (informality) and `metadata` (selected configuration and CV loss per arm, test metrics, ENOE period, employment filter, shipped variant, scikit-learn version, random state). Public names re-exported from `src/__init__.py`.
 
-### 3.3 `compare_outputs`
+### 3.3 `compare_outputs` ✅ done
 - Move the CLI to `src/__main__.py` (removes the `RuntimeWarning`); rename `--stage 3` to `--stage models`; alias the full eodgdl rename map so OD column diffs show real changes only; guard `prob_informal`/`informal_predicted` access; guard zero totals; only run key overlap for stage-1 files.
+- **Done (2026-08-27):** CLI moved to `src/__main__.py` (`uv run python -m src <ref> <new> [--stage 1|2|models|all]`; `3` kept as an alias of `models`); OD columns of a pre-migration reference are aliased through eodgdl's full rename map plus `OD_RENAMES`, so column diffs show real changes only; `prob_informal`/`informal_sampled` guarded; zero totals guarded; key overlap only for stage 1.
 
-### 3.4 Notebooks
+### 3.4 Notebooks ✅ done
 - Generate every number in the markdown from result frames (f-strings / `IPython.display.Markdown`) — the current prose in 04 and 05 reports the wrong winning model, wrong metrics, and the wrong *sign* of the calibration bias.
 - Fix `"\%"` → raw strings (03/04/05); nb03: don't rebind `tick_labels` (cell 26), include `sector` in the informality-profile grid; nb04: remove tautological "consistency check" (cell 47), typo "training:a", weight-normalization footnote; nb02: drop `(Tala) → tala`, document the fallback paths (`eda == 98`, `e_con == 9`, "Otros (especifique)", source NA); nb01: mention `EODGDL_CACHE_DIR`.
 - Docs: joblib bundles have 5 keys; README §1 `survey_stratum` source; README §4.2 new category names; note `genero` is sex at birth (2.9% of OD workers report a different `genero_identidad`) or rename to `sexo`.
+- **Done (2026-08-27):** the prose cells of notebooks 04 and 05 that quoted numbers (selected model, metrics, confusion, calibration, usage, headline, by-sector) are now code cells rendering Markdown from the result frames (`from IPython.display import Markdown`), and the hyperparameter grids are listed from `build_*_models()`; `\%` strings are raw; notebook 03 draws the informality profile on a 3×3 grid including `sector` and no longer rebinds `tick_labels`; notebook 04's tautological consistency check, typo and weight-normalization footnote fixed; notebook 02 documents the fallback paths; notebook 01 mentions `EODGDL_CACHE_DIR`; CLAUDE.md lists the bundle keys and the `prepare` step; README notes that `genero` is sex at birth. Verified by a full 01→05 re-run compared with the pre-Phase-3 outputs (see status line).
 
 ---
 
