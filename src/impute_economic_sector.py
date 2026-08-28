@@ -12,7 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, fit_level_model, predict_level_shares, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 # Work-trip destination features (review item 4.4): the destination type, its ámbito, and the DENUE establishment mix
@@ -321,7 +321,17 @@ def refit_probabilistic_sector_model(model, od, sector_features=OD_SECTOR_FEATUR
 
     return final_model, training_data
 
-def impute_missing_sectors_hybrid(model_with_education, model_without_education, od, with_education_features=OD_SECTOR_FEATURES, without_education_features=OD_ROBUST_SECTOR_FEATURES):
+def fit_destination_models(od, with_education_features=OD_SECTOR_FEATURES, without_education_features=OD_ROBUST_SECTOR_FEATURES, random_state=42):
+    """Auxiliary models P(destino_trabajo | x) on OD workers with a work trip (one per specification, without the
+    destination features), used to marginalize workers without a work trip with their own distribution (4.7)."""
+    models = {}
+    for key, features in (("with_education", with_education_features), ("without_education", without_education_features)):
+        predictors = [column for column in features if column not in OD_DESTINATION_FEATURES]
+        models[key] = fit_level_model(od, "destino_trabajo", predictors, sample_weights=od["expansion_factor"], random_state=random_state)
+
+    return models
+
+def impute_missing_sectors_hybrid(model_with_education, model_without_education, od, with_education_features=OD_SECTOR_FEATURES, without_education_features=OD_ROBUST_SECTOR_FEATURES, destination_models=None):
     od = od.copy()
     for model in (model_with_education, model_without_education):
         assert set(model.named_steps["classifier"].classes_) == set(SECTOR_CLASSES), f"Sector model classes {list(model.named_steps['classifier'].classes_)} differ from SECTOR_CLASSES"
@@ -351,7 +361,11 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
     if use_with_education.any():
         X_with_education = prepare_sector_features(od.loc[use_with_education], with_education_features)
         assert_known_levels(X_with_education)
-        probabilities_with_education, marginalized_with_education = predict_proba_marginalizing(model_with_education, X_with_education)
+        conditional_with_education = None
+        if destination_models is not None:
+            predictors_with_education = [column for column in with_education_features if column not in OD_DESTINATION_FEATURES]
+            conditional_with_education = {"destino_trabajo": predict_level_shares(destination_models["with_education"], X_with_education[predictors_with_education])}
+        probabilities_with_education, marginalized_with_education = predict_proba_marginalizing(model_with_education, X_with_education, conditional_shares=conditional_with_education)
         classes_with_education = model_with_education.named_steps["classifier"].classes_
         predictions_with_education = classes_with_education[probabilities_with_education.argmax(axis=1)]
         od.loc[use_with_education, "sector_marginalized_features"] = marginalized_with_education.to_numpy()
@@ -367,7 +381,11 @@ def impute_missing_sectors_hybrid(model_with_education, model_without_education,
     if use_without_education.any():
         X_without_education = prepare_sector_features(od.loc[use_without_education], without_education_features)
         assert_known_levels(X_without_education)
-        probabilities_without_education, marginalized_without_education = predict_proba_marginalizing(model_without_education, X_without_education)
+        conditional_without_education = None
+        if destination_models is not None:
+            predictors_without_education = [column for column in without_education_features if column not in OD_DESTINATION_FEATURES]
+            conditional_without_education = {"destino_trabajo": predict_level_shares(destination_models["without_education"], X_without_education[predictors_without_education])}
+        probabilities_without_education, marginalized_without_education = predict_proba_marginalizing(model_without_education, X_without_education, conditional_shares=conditional_without_education)
         classes_without_education = model_without_education.named_steps["classifier"].classes_
         predictions_without_education = classes_without_education[probabilities_without_education.argmax(axis=1)]
         od.loc[use_without_education, "sector_marginalized_features"] = marginalized_without_education.to_numpy()

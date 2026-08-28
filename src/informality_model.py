@@ -13,7 +13,7 @@ from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, fit_level_model, predict_level_shares, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo"]
@@ -25,11 +25,11 @@ from .generate_enoe_od_dataframes import ENOE_GROUP_KEYS as ENOE_HOUSEHOLD_COLUM
 def prepare_informality_features(dataframe, features):
     return prepare_model_features(dataframe, features)
 
-def predict_informal_probability(model, X, marginalize_unsupported=False, level_subsets=None):
+def predict_informal_probability(model, X, marginalize_unsupported=False, level_subsets=None, conditional_shares=None):
     """P(informal) from a fitted pipeline; with ``marginalize_unsupported`` levels without training support are
     marginalized (see ``common.predict_proba_marginalizing``), otherwise ``predict_proba`` is used as is."""
     if marginalize_unsupported:
-        probabilities, _ = predict_proba_marginalizing(model, X, level_subsets=level_subsets)
+        probabilities, _ = predict_proba_marginalizing(model, X, level_subsets=level_subsets, conditional_shares=conditional_shares)
     else:
         probabilities = normalize_predicted_probabilities(model.predict_proba(X))
     classes = model.named_steps["classifier"].classes_
@@ -399,7 +399,29 @@ def validate_od_sector_probabilities(od, tolerance=1e-8):
 
 
 # Apply informality models to OD
-def predict_od_informality(model_with_education, model_without_education, od, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, threshold=0.5, training_municipalities=None, level_subsets=None):
+def fit_workplace_models(enoe, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, random_state=42):
+    """Auxiliary models P(lugar_trabajo | x) on ENOE (one per specification, without the workplace itself), used to
+    marginalize OD workers whose place of work is unobserved with their own conditional distribution (4.7)."""
+    models = {}
+    for key, features in (("with_education", with_education_features), ("without_education", without_education_features)):
+        predictors = [column for column in features if column != "lugar_trabajo"]
+        models[key] = fit_level_model(enoe, "lugar_trabajo", predictors, sample_weights=enoe["survey_weight"], random_state=random_state)
+
+    return models
+
+def evaluate_workplace_model(model, validation_data, features):
+    """Weighted multiclass log loss and accuracy of an auxiliary place-of-work model vs the marginal baseline."""
+    observed = ~identify_missing_category(validation_data["lugar_trabajo"]); data = validation_data[observed]
+    predictors = [column for column in features if column != "lugar_trabajo"]
+    probabilities = predict_level_shares(model, prepare_model_features(data, predictors)); classes = list(probabilities.columns)
+    weights = data["survey_weight"].astype(float); y = data["lugar_trabajo"].astype(str)
+    return pd.Series({
+        "weighted_log_loss": log_loss(y, probabilities.to_numpy(), labels=classes, sample_weight=weights),
+        "marginal_log_loss": marginal_log_loss(y, weights, classes),
+        "weighted_accuracy": accuracy_score(y, probabilities.idxmax(axis=1), sample_weight=weights),
+    })
+
+def predict_od_informality(model_with_education, model_without_education, od, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, threshold=0.5, training_municipalities=None, level_subsets=None, workplace_models=None):
     od = od.copy()
 
     validate_od_sector_probabilities(od)
@@ -443,15 +465,16 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
 
         conditional_probability = np.full(len(od), np.nan)
 
-        if use_with_education.any():
-            X_with_education = prepare_informality_features(scenario_data.loc[use_with_education], with_education_features)
-            probability_with_education, _ = predict_informal_probability(model_with_education, X_with_education, marginalize_unsupported=True, level_subsets=level_subsets)
-            conditional_probability[np.flatnonzero(use_with_education.to_numpy())] = probability_with_education
-
-        if use_without_education.any():
-            X_without_education = prepare_informality_features(scenario_data.loc[use_without_education], without_education_features)
-            probability_without_education, _ = predict_informal_probability(model_without_education, X_without_education, marginalize_unsupported=True, level_subsets=level_subsets)
-            conditional_probability[np.flatnonzero(use_without_education.to_numpy())] = probability_without_education
+        for key, use_mask, model, features in (("with_education", use_with_education, model_with_education, with_education_features), ("without_education", use_without_education, model_without_education, without_education_features)):
+            if not use_mask.any():
+                continue
+            X_arm = prepare_informality_features(scenario_data.loc[use_mask], features)
+            conditional_shares = None
+            if workplace_models is not None and "lugar_trabajo" in features:
+                predictors = [column for column in features if column != "lugar_trabajo"]
+                conditional_shares = {"lugar_trabajo": predict_level_shares(workplace_models[key], X_arm[predictors])}
+            probability_arm, _ = predict_informal_probability(model, X_arm, marginalize_unsupported=True, level_subsets=level_subsets, conditional_shares=conditional_shares)
+            conditional_probability[np.flatnonzero(use_mask.to_numpy())] = probability_arm
 
         if np.isnan(conditional_probability).any():
             raise ValueError(f"Missing conditional informality probabilities for sector {sector_class}.")

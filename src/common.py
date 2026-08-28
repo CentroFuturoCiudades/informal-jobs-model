@@ -143,7 +143,7 @@ def attach_training_level_shares(model, X, sample_weights):
 
     return model
 
-def predict_proba_marginalizing(model, X, level_subsets=None):
+def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares=None):
     """``model.predict_proba`` where a categorical value with no training support is marginalized out.
 
     With one-hot encoding a tree ensemble routes an all-zero block (a declared level that never occurred in
@@ -154,6 +154,9 @@ def predict_proba_marginalizing(model, X, level_subsets=None):
 
     ``level_subsets`` (feature -> list of levels) restricts the levels a feature is averaged over (shares are
     renormalized within the subset), e.g. an unsampled metro municipality averaged over the sampled metro ones only.
+    ``conditional_shares`` (feature -> DataFrame, one row per row of ``X`` in order, one column per level) replaces
+    the global training shares with **row-specific** probabilities P(level | x) from an auxiliary model (review item
+    4.7): a worker whose place of work is unobserved is averaged over the places of work that workers like them have.
 
     Returns ``(probabilities, marginalized_features)`` where the second element is a per-row string listing the
     features that were marginalized ("" if none).
@@ -169,6 +172,9 @@ def predict_proba_marginalizing(model, X, level_subsets=None):
                 raise ValueError(f"No training support for the requested {feature} levels {list(levels)}")
             shares[feature] = pd.Series(0.0, index=shares[feature].index).add(subset / subset.sum(), fill_value=0.0)
     X = X.reset_index(drop=True)
+    conditional = {feature: table.reset_index(drop=True) for feature, table in (conditional_shares or {}).items()}
+    for feature, table in conditional.items():
+        assert len(table) == len(X), f"conditional shares for {feature} must have one row per row of X"
     features = [column for column in X.columns if column in shares]
     n_classes = len(model.named_steps["classifier"].classes_)
     result = np.zeros((len(X), n_classes))
@@ -181,15 +187,25 @@ def predict_proba_marginalizing(model, X, level_subsets=None):
             result[rows.index] += weights[:, None] * model.predict_proba(rows)
             return
         feature, rest = remaining[0], remaining[1:]
-        supported = shares[feature][shares[feature] > 0]
+        # The missing label is never a "supported" level: a few training rows with no_especificado must not turn an
+        # unobserved value into a category of its own (it would be routed like the residual training level).
+        supported = shares[feature][(shares[feature] > 0) & (shares[feature].index != NO_ESPECIFICADO)]
+        supported = supported / supported.sum()
         unsupported = ~rows[feature].astype(str).isin(supported.index)
         fill(rows[~unsupported], weights[~unsupported.to_numpy()], rest)
         if unsupported.any():
             for row in rows.index[unsupported]:
                 if feature not in marginalized_features[row]:
                     marginalized_features[row].append(feature)
-            for level, share in supported.items():
-                fill(rows[unsupported].assign(**{feature: level}), weights[unsupported.to_numpy()] * share, rest)
+            if feature in conditional:
+                table = conditional[feature].loc[rows.index[unsupported]]
+                row_shares = table.reindex(columns=supported.index, fill_value=0.0).to_numpy(dtype=float)
+                row_shares = row_shares / np.where(row_shares.sum(axis=1, keepdims=True) > 0, row_shares.sum(axis=1, keepdims=True), 1.0)
+                for column_index, level in enumerate(supported.index):
+                    fill(rows[unsupported].assign(**{feature: level}), weights[unsupported.to_numpy()] * row_shares[:, column_index], rest)
+            else:
+                for level, share in supported.items():
+                    fill(rows[unsupported].assign(**{feature: level}), weights[unsupported.to_numpy()] * share, rest)
 
     fill(X, np.ones(len(X)), features)
     marginalized = pd.Series(["+".join(names) for names in marginalized_features], index=X.index, dtype=object)
@@ -453,3 +469,39 @@ def cross_validate_grouped(model, X, y, sample_weights, groups, cv_splits=5, ran
         losses.append(float(log_loss(y.iloc[validation_index], probabilities, labels=classes, sample_weight=w.iloc[validation_index])))
 
     return pd.Series(losses, index=[f"fold_{k}" for k in range(len(losses))])
+
+
+# Auxiliary model for an unobserved categorical feature (review item 4.7)
+def fit_level_model(frame, target, features, sample_weights=None, random_state=42):
+    """Fit P(target level | features) with a boosted-tree pipeline (same preprocessing contract as the main models);
+    rows whose target is the missing label are excluded. Returns the fitted pipeline."""
+    from sklearn.base import clone
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import FunctionTransformer, OneHotEncoder
+
+    observed = ~identify_missing_category(frame[target])
+    data = frame[observed]
+    weights = None if sample_weights is None else normalize_sample_weights(pd.Series(np.asarray(sample_weights))[observed.to_numpy()])
+    numerical, categorical = split_feature_types(features)
+    levels = build_category_levels()
+    preprocessor = ColumnTransformer([
+        ("numerical", SimpleImputer(strategy="median"), numerical),
+        ("categorical", OneHotEncoder(categories=[levels[column] for column in categorical], handle_unknown="error", sparse_output=False), categorical),
+    ])
+    model = Pipeline([
+        ("prepare", FunctionTransformer(prepare_model_features, kw_args={"features": list(features)})),
+        ("preprocessor", preprocessor),
+        ("classifier", HistGradientBoostingClassifier(max_iter=100, learning_rate=0.05, max_leaf_nodes=15, l2_regularization=1.0, early_stopping=False, random_state=random_state)),
+    ])
+    model.fit(data, data[target].astype(str), classifier__sample_weight=None if weights is None else weights.to_numpy())
+
+    return model
+
+def predict_level_shares(model, X):
+    """Row-wise P(level | x) as a DataFrame (columns = the model's classes) for ``predict_proba_marginalizing``."""
+    probabilities = model.predict_proba(X)
+
+    return pd.DataFrame(probabilities, columns=list(model.named_steps["classifier"].classes_), index=X.index)
