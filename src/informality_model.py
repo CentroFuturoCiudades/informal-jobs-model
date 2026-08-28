@@ -16,8 +16,8 @@ from .diagnose_enoe_od_dataframes import filter_common_geography
 from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
-INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
-INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
+INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo"]
+INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo"]
 from .generate_enoe_od_dataframes import ENOE_GROUP_KEYS as ENOE_HOUSEHOLD_COLUMNS  # cross-quarter household key: CV groups and bootstrap clusters
 
 # General helpers
@@ -399,7 +399,7 @@ def validate_od_sector_probabilities(od, tolerance=1e-8):
 
 
 # Apply informality models to OD
-def predict_od_informality(model_with_education, model_without_education, od, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, threshold=0.5, training_municipalities=None):
+def predict_od_informality(model_with_education, model_without_education, od, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, threshold=0.5, training_municipalities=None, level_subsets=None):
     od = od.copy()
 
     validate_od_sector_probabilities(od)
@@ -408,11 +408,12 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
     # municipalities (their value is set to no_especificado, which has no training support, and the marginalization
     # is restricted to ``training_municipalities``). "otro" would mean non-metro Jalisco and is not used for them.
     od["municipio_scored"] = od["municipio"].astype("string")
-    level_subsets = None
+    level_subsets = dict(level_subsets or {})  # e.g. {"lugar_trabajo": ["otro_o_sin_local"]} to score workers without a work trip as home/mobile work
     if training_municipalities is not None:
         unsampled = ~od["municipio"].isin(set(training_municipalities) | {"otro", NO_ESPECIFICADO})
         od.loc[unsampled, "municipio_scored"] = NO_ESPECIFICADO
-        level_subsets = {"municipio": sorted(training_municipalities)}
+        level_subsets["municipio"] = sorted(training_municipalities)
+    level_subsets = level_subsets or None
     scoring_data = od.drop(columns=["municipio"]).rename(columns={"municipio_scored": "municipio"})
 
     missing_education = identify_missing_category(od["escolaridad"])

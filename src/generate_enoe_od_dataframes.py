@@ -19,7 +19,13 @@ ENOE_HOUSEHOLD_KEYS = ENOE_DWELLING_KEYS + ["n_hog", "h_mud"]
 ENOE_PERSON_KEYS = ENOE_HOUSEHOLD_KEYS + ["n_ren"]
 # est_d_tri is the sampling-design stratum (18 strata in Jalisco 2023t1); est is INEGI's socio-economic stratum (4 levels).
 ENOE_RENAMES = {"fac_tri": "survey_weight", "est_d_tri": "survey_stratum", "upm": "survey_psu", "est": "estrato_socioeconomico"}
-ENOE_CODE_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "estrato_socioeconomico", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"]
+# Workplace items (COE1 section IV, review item 4.2): p4 = type of unit (named business / unnamed / domestic-subordinate /
+# abroad), p4b = interviewer classification (agriculture / educational-health institution / public or non-profit /
+# private business), p4e = premises of an independent business, p4f = where the activity takes place when there are no premises,
+# p4h = where a subordinate works. Roster aggregates (4.3) are computed over the residents of the household.
+ENOE_WORKPLACE_COLUMNS = ["p4", "p4b", "p4e", "p4f", "p4h"]
+ENOE_ROSTER_COLUMNS = ["hogar_trabajadores", "hogar_ninos_6_11"]
+ENOE_CODE_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "estrato_socioeconomico", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"] + ENOE_WORKPLACE_COLUMNS + ENOE_ROSTER_COLUMNS
 ENOE_WEIGHT_COLUMNS = ["survey_weight"]
 ENOE_OUTPUT_COLUMNS = ENOE_CODE_COLUMNS[:len(ENOE_PERSON_KEYS) + 3] + ENOE_WEIGHT_COLUMNS + ENOE_CODE_COLUMNS[len(ENOE_PERSON_KEYS) + 3:]
 # Cross-quarter identifiers: tipo/mes_cal distinguish the panel visits of the same dwelling, so grouping (CV folds,
@@ -36,6 +42,7 @@ ENOE_MIN_AGE, ENOE_MAX_AGE = 12, 98
 # OD
 OD_EMPLOYED_CATEGORIES = ["Tiempo completo", "Medio tiempo", "Tenía trabajo, pero no trabajó"]
 OD_DWELLING_COLUMNS = ["municipio", "ageb", "centralidad", "personas_en_vivienda"]
+OD_WORK_TRIP_PURPOSE = "Trabajar"
 # Raw eodgdl columns whose names collide with the harmonized columns created in stage 2.
 OD_RAW_COLUMN_RENAMES = {
     "ocupacion": "ocupacion_raw",
@@ -54,14 +61,19 @@ def assert_enoe_dwelling_key(frame, period):
         raise ValueError(f"ENOE period {period!r} resolves the dwelling key to {resolved}, but this pipeline expects {ENOE_DWELLING_KEYS}")
 
 def compute_enoe_dwelling_size(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE):
-    """Number of persons per dwelling: every SDEM row of the dwelling (all ages, all households) that is a
-    habitual or new resident (``c_res`` 1 or 3); persons who moved out (``c_res == 2``) are not counted."""
+    """Per-dwelling and per-household roster aggregates from the full SDEM roster of habitual/new residents
+    (``c_res`` 1 or 3; persons who moved out are not counted): ``dwelling_size`` (all ages, all households of the
+    dwelling), ``hogar_trabajadores`` (employed members of the household, ``clase2 == 1``) and ``hogar_ninos_6_11``
+    (household members aged 6-11 — the OD roster starts at age 6, so younger children are not comparable)."""
     sdem = mxcensus.load_enoe(table="sdem", period=period, ent=state_code)
     assert_enoe_dwelling_key(sdem, period)
-    sdem = sdem[sdem["c_res"].isin(["1", "3"])]
+    sdem = sdem[sdem["c_res"].isin(["1", "3"])].copy()
+    sdem["_employed"] = (sdem["clase2"] == "1").astype(int)
+    sdem["_child"] = pd.to_numeric(sdem["eda"], errors="coerce").between(6, 11).astype(int)
     dwelling_size = sdem.groupby(ENOE_DWELLING_KEYS).size().rename("dwelling_size").reset_index()
+    household = sdem.groupby(ENOE_HOUSEHOLD_KEYS).agg(hogar_trabajadores=("_employed", "sum"), hogar_ninos_6_11=("_child", "sum")).reset_index()
 
-    return dwelling_size
+    return dwelling_size.merge(household, on=ENOE_DWELLING_KEYS, how="left", validate="one_to_many")
 
 def load_enoe_employed_persons(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, employment_filter="clase2"):
     """Employed persons from ``mxcensus.load_enoe_persons`` (SDEM joined with COE1/COE2).
@@ -105,7 +117,7 @@ def generate_enoe_dataframe(period=ENOE_PERIOD, state_code=ENOE_STATE_CODE, empl
 def _generate_enoe_quarter(period, state_code, employment_filter):
     enoe = load_enoe_employed_persons(period=period, state_code=state_code, employment_filter=employment_filter)
     dwelling_size = compute_enoe_dwelling_size(period=period, state_code=state_code)
-    enoe = enoe.merge(dwelling_size, on=ENOE_DWELLING_KEYS, how="left", validate="many_to_one")
+    enoe = enoe.merge(dwelling_size, on=ENOE_HOUSEHOLD_KEYS, how="left", validate="many_to_one")
     assert enoe["dwelling_size"].notna().all(), "Every employed person must belong to a dwelling in SDEM"
     enoe = enoe.rename(columns=ENOE_RENAMES)[ENOE_OUTPUT_COLUMNS].copy()
     # mxcensus returns raw INEGI codes as strings (blanks for missing); stage 2 maps integer codes. Weights stay float
@@ -119,10 +131,29 @@ def _generate_enoe_quarter(period, state_code, employment_filter):
     return enoe.reset_index(drop=True)
 
 # OD
+def compute_od_work_trip_destination(trips):
+    """Most frequent destination type of each person's work trips (``tipo_lugar_destino`` of trips with purpose
+    "Trabajar"); persons without a work trip on the survey day are absent (review item 4.2)."""
+    work_trips = trips.reset_index()
+    work_trips = work_trips[work_trips["motivo_viaje"] == OD_WORK_TRIP_PURPOSE]
+    destination = work_trips.groupby(["folio_vivienda", "folio_habitante"])["tipo_lugar_destino"].agg(lambda values: values.astype(str).value_counts().index[0])
+
+    return destination.rename("destino_trabajo").reset_index()
+
+def compute_od_household_roster(population):
+    """Household roster aggregates comparable with ENOE's: employed members and children aged 6-11 (4.3)."""
+    roster = population.copy()
+    roster["_employed"] = roster["trabajo_semana_pasada"].isin(OD_EMPLOYED_CATEGORIES).astype(int)
+    roster["_child"] = pd.to_numeric(roster["edad"], errors="coerce").between(6, 11).astype(int)
+
+    return roster.groupby("folio_vivienda").agg(hogar_trabajadores=("_employed", "sum"), hogar_ninos_6_11=("_child", "sum")).reset_index()
+
 def generate_od_dataframe(eod_path=None):
     tables = eodgdl.load_eod(eod_path)
     population = tables.hab.reset_index()
     households = tables.viv[OD_DWELLING_COLUMNS]
+    population = population.merge(compute_od_household_roster(population), on="folio_vivienda", how="left", validate="many_to_one")
+    population = population.merge(compute_od_work_trip_destination(tables.trips), on=["folio_vivienda", "folio_habitante"], how="left", validate="one_to_one")
     od = population.merge(households, left_on="folio_vivienda", right_index=True, how="left", validate="many_to_one")
     suffixed = [column for column in od.columns if column.endswith(("_x", "_y"))]
     assert not suffixed, f"Person and dwelling tables share columns; eodgdl schema changed: {suffixed}"

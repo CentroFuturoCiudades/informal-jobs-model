@@ -34,7 +34,7 @@ def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
 def prepare_enoe_data_types(enoe):
     """Stage 1 already delivers Int64 codes and float weights; only verify, so the cast lives in one place."""
     enoe = enoe.copy()
-    code_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_stratum", "survey_psu"]
+    code_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_stratum", "survey_psu", "p4", "p4b", "p4e", "p4f", "p4h", "hogar_trabajadores", "hogar_ninos_6_11"]
     not_integer = [column for column in code_columns if not pd.api.types.is_integer_dtype(enoe[column])]
     assert not not_integer, f"ENOE code columns must be integer-typed (stage 1 casts them): {not_integer}"
     assert pd.api.types.is_float_dtype(enoe["survey_weight"]) and enoe["survey_weight"].notna().all(), "survey_weight must be float without missing values"
@@ -300,6 +300,53 @@ def harmonize_od_sector(od):
 
     return od
 
+# PLACE OF WORK (review item 4.2)
+def harmonize_enoe_workplace(enoe):
+    """``lugar_trabajo`` from COE1 section IV. Levels shared with the OD's work-trip destination type:
+    establecimiento (premises of a non-commercial unit), comercio_o_puesto (premises in the commerce sector, or a
+    fixed/semi-fixed/improvised stall — the OD answer "Comercio, mercado, tienda o centro comercial" covers both),
+    otra_vivienda (employer's or client's home, domestic workers), otro_o_sin_local (field, itinerant, vehicle, own
+    home, construction site, visiting clients) and no_especificado."""
+    enoe = enoe.copy()
+    p4e = pd.to_numeric(enoe["p4e"], errors="coerce"); p4f = pd.to_numeric(enoe["p4f"], errors="coerce"); p4h = pd.to_numeric(enoe["p4h"], errors="coerce")
+    commerce = enoe["scian"].isin([6, 7])
+    premises = p4h.isin([1, 2]) | p4e.isin([1, 2, 3])
+    p4b = pd.to_numeric(enoe["p4b"], errors="coerce")
+    lugar = pd.Series(NO_ESPECIFICADO, index=enoe.index, dtype=object)
+    lugar[p4b.isin([2, 3])] = "establecimiento"      # institutions (schools, hospitals, government, non-profits) skip 4e-4h
+    lugar[p4b.eq(1)] = "otro_o_sin_local"            # agricultural activity (field)
+    lugar[premises] = np.where(commerce[premises], "comercio_o_puesto", "establecimiento")
+    lugar[p4f.isin([3, 9, 10])] = "comercio_o_puesto"
+    lugar[p4f.eq(8) | enoe["p4"].eq(3)] = "otra_vivienda"
+    lugar[p4f.isin([1, 2, 4, 5, 6, 7, 11]) | p4h.isin([3, 4])] = "otro_o_sin_local"
+    enoe["lugar_trabajo"] = lugar
+
+    return enoe
+
+OD_WORKPLACE_MAPPING = {
+    "Fábrica o taller": "establecimiento", "Oficina": "establecimiento", "Hospital, clínica, consultorio, laboratorio clínico": "establecimiento",
+    "Escuela": "establecimiento", "Restaurante, bar, cafetería": "establecimiento", "Centro cultural o área recreativa": "establecimiento",
+    "Deportivo, gimnasio": "establecimiento", "Comercio, mercado, tienda o centro comercial": "comercio_o_puesto",
+    "Otra vivienda": "otra_vivienda", "Su casa": "otro_o_sin_local", "Otros (especifique)": "otro_o_sin_local",
+}
+
+def harmonize_od_workplace(od):
+    """``lugar_trabajo`` from the destination type of the work trips; workers without a work trip on the survey day
+    (home-based, mobile, or simply did not travel that day) are ``no_especificado`` and are marginalized at scoring."""
+    od = od.copy()
+    assert_mapping_covers(od["destino_trabajo"], OD_WORKPLACE_MAPPING)
+    od["lugar_trabajo"] = od["destino_trabajo"].map(OD_WORKPLACE_MAPPING).fillna(NO_ESPECIFICADO)
+
+    return od
+
+# HOUSEHOLD ROSTER (review item 4.3)
+def harmonize_household_roster(frame):
+    frame = frame.copy()
+    frame["hogar_trabajadores_cat"] = pd.to_numeric(frame["hogar_trabajadores"], errors="coerce").clip(upper=4).astype("Int64").astype("string").replace({"4": "4_y_mas"}).fillna(NO_ESPECIFICADO)
+    frame["hogar_ninos_cat"] = pd.to_numeric(frame["hogar_ninos_6_11"], errors="coerce").clip(upper=2).astype("Int64").astype("string").replace({"2": "2_y_mas"}).fillna(NO_ESPECIFICADO)
+
+    return frame
+
 def generate_enoe_informal_label(enoe):
     enoe = enoe.copy()
     assert_mapping_covers(enoe["emp_ppal"], {1, 2})
@@ -319,6 +366,8 @@ def harmonize_enoe_dataframe(enoe):
     enoe = harmonize_enoe_relationship(enoe)
     enoe = harmonize_enoe_household_size(enoe)
     enoe = harmonize_enoe_sector(enoe)
+    enoe = harmonize_enoe_workplace(enoe)
+    enoe = harmonize_household_roster(enoe)
     enoe = generate_enoe_informal_label(enoe)
 
     return enoe
@@ -334,5 +383,7 @@ def harmonize_od_dataframe(od):
     od = harmonize_od_relationship(od)
     od = harmonize_od_household_size(od)
     od = harmonize_od_sector(od)
+    od = harmonize_od_workplace(od)
+    od = harmonize_household_roster(od)
 
     return od
