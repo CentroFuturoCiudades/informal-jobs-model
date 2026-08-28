@@ -36,7 +36,7 @@ Both surveys are loaded through the project's data packages, which download and 
     - `trabajo_semana_pasada`: employment status last week (used to select workers)
     - `giro_empresa`: economic sector of the employer (missing for most workers)
     - `municipio_raw`, `ageb`, `centralidad`: dwelling geography (from `viv`)
-    - `destino_trabajo`, `destino_cvegeo`, `destino_zona`: type, INEGI code and zone of the most frequent work-trip destination (from the trips table); `destino_ambito` (urban AGEB / rural locality / airport / outside the metro zone / unknown) and the DENUE establishment mix at the destination (`dest_share_*`, `dest_share_grandes`, `dest_establecimientos_log`; DENUE release 2022-11 via `mxcensus`, codes resolved through `eodgdl.load_imeplan_agebs` and the Marco Geoestadístico) — used by the sector model only
+    - `destino_trabajo`, `destino_cvegeo`, `destino_zona`: type, INEGI code and zone of the most frequent work-trip destination (from the trips table) (the destination ámbito and DENUE establishment mix are computed inside the sector model, see 2.4)
     - `dwelling_size` (`personas_en_vivienda`): household size category
 
     Raw OD columns whose `eodgdl` names coincide with the harmonized attributes created in stage 2 (`ocupacion`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`) carry a `_raw` suffix (`ijm.OD_RAW_COLUMN_RENAMES`); the unsuffixed name always refers to the harmonized attribute.
@@ -69,13 +69,15 @@ The next step is to conduct a general diagnostic analysis of the variables that 
 **Notebook**: `03_diagnose_enoe_od_dataframes.ipynb`
 **Module:** `diagnose_enoe_od_dataframes.py`
 
-### 2.4 Economic Sector Assignment
-Next, three Machine Learning classifiers (Logistic Regression, Random Forest, and Histogram Gradient Boosting) are evaluated to predict the economic sector of OD workers with missing sector information. Two model specifications are considered, with and without educational level, and the best model from each specification is combined into a hybrid strategy. Workers with available education are classified using the education-based model, while workers without this information use the robust alternative. The final dataset includes both an assigned economic sector and the predicted probabilities for all four sector categories.
+### 2.4 Economic activity (giro) imputation
+Most OD workers did not report the activity of their employer (`giro_empresa`). The self-contained subpackage `informal_jobs_model.od_sector` imputes it **within the OD survey and in the survey's own terms**: it reads the cleaned tables directly through `eodgdl.load_eod()`, uses raw survey columns as predictors (sex, age, education, municipality, marital status, relationship, dwelling size, occupation, employment status, dwelling centrality, the work-trip destination type and mode, weekend work travel, household vehicles) plus the destination's ámbito and DENUE establishment mix (fetched through `mxcensus`), and predicts the five native giro levels (Comercio, Servicio, Educación, Industria, Gobierno/sector público). Three classifiers (Logistic Regression, Random Forest, Histogram Gradient Boosting) are tuned under a household-grouped cross-validation with a one-standard-error selection rule, in two specifications (with and without education) combined into a hybrid: workers with observed education are scored by the first, the rest by the second. Workers without a work trip are marginalized over destination types with an auxiliary model P(destination | x). The output is the full probability vector `prob_giro_<giro>`; `giro_final` (the arg-max) is a convenience. Nothing in this stage depends on ENOE, which is what allows the model to move to the `eodgdl` package.
 
-The imputation assumes that, conditional on the harmonized attributes, workers who did not report a sector are distributed across sectors like workers who did (missing at random given the covariates). The two populations differ — non-respondents are more educated and their missing sector co-occurs with other item non-response — so notebook 04 reports two sensitivity scenarios (a refit on training rows reweighted to the non-respondent profile, and a delta adjustment of the rare `gobierno_otro_agricultura` class to its observed share), and notebook 05 reports the informality headline under each. The shipped outputs use the unadjusted imputation.
+The informality stage consumes the giro probabilities collapsed to the four harmonized sector classes (`ijm.attach_sector_probabilities`, using the many-to-one map `sector.yaml` `od_giro`: Servicio and Educación → `servicios_transporte`, Industria → `manufactura_construccion`, Gobierno → `gobierno_otro_agricultura`), which is lossless for the marginalization over sectors.
+
+The imputation assumes that, conditional on the predictors, workers who did not report a giro are distributed like workers who did (missing at random given the covariates). The two populations differ — non-respondents are more educated and their missing giro co-occurs with other item non-response — so notebook 04 reports two sensitivity scenarios (a refit on training rows reweighted to the non-respondent profile, and a delta adjustment of the rare `gobierno` class to its observed share), and notebook 05 reports the informality headline under each. The shipped outputs use the unadjusted imputation.
 
 **Notebook**: `04_impute_economic_sector.ipynb`
-**Module:** `impute_economic_sector.py`
+**Module:** `od_sector/` (`features.py`, `model.py`, `config.yaml`)
 
 ### 2.5 Informality Classification
 Analogously to the economic-sector assignment stage, we evaluate three Machine Learning algorithms to estimate formal and informal employment among workers in the Origin-Destination survey, using ENOE as the training source. A hybrid strategy is adopted: when educational information is available, the model including education is used; otherwise, a robust specification excluding education is applied.
@@ -97,7 +99,8 @@ All generated results are stored in the `outputs/` directory. The pipeline produ
 | `outputs/od_workers.parquet` | Initial dataframe of employed workers from the Origin-Destination survey. |
 | `outputs/enoe_harmonized.parquet` | ENOE worker dataset after harmonizing the attributes shared with the OD survey. |
 | `outputs/od_harmonized.parquet` | OD worker dataset after harmonizing the attributes shared with ENOE. |
-| `outputs/od_sector_imputed.parquet` | OD dataset after economic-sector imputation. Workers with missing sector information include both the final sector assignment and the predicted probabilities for the four economic-sector categories. |
+| `outputs/od_giro_imputed.parquet` | Output of the OD giro model: keys, `giro_*` bookkeeping columns and `prob_giro_<giro>` for the five native giro levels. |
+| `outputs/od_sector_imputed.parquet` | `od_harmonized` joined with the giro output collapsed to the four harmonized sector classes (`prob_sector_*`, `sector_final`); the input of the informality stage. |
 | `outputs/od_informality_imputed.parquet` | Final OD dataset containing the estimated probability of informal employment for each worker. Sector uncertainty is propagated into the final informality probability through probabilistic marginalization. |
 
 The two principal outputs of the Machine Learning pipeline are therefore:
@@ -111,7 +114,7 @@ The final fitted models are stored in `outputs/models/`:
 
 | Output | Description |
 |---|---|
-| `economic_sector_hybrid_model.joblib` | Final hybrid economic-sector model, combining the specifications with and without education. |
+| `od_giro_hybrid_model.joblib` | Final hybrid OD giro model (`od_sector`), combining the specifications with and without education, with the auxiliary destination models. |
 | `informality_hybrid_model.joblib` | Final hybrid informality model trained on ENOE and used to estimate informality probabilities in OD. |
 
 These files allow the final models to be loaded and applied without repeating the complete tuning and training procedure.
@@ -139,7 +142,7 @@ The fitted models can be used to assign economic-sector and informality informat
 
 The main files for downstream applications are:
 
-- `outputs/models/economic_sector_hybrid_model.joblib`: used when the economic sector is unknown.
+- `outputs/models/od_giro_hybrid_model.joblib`: used when the economic activity (giro) is unknown.
 - `outputs/models/informality_hybrid_model.joblib`: used to estimate the probability of informal employment.
 - `outputs/od_informality_imputed.parquet`: final modeled OD dataset and reference output of the complete pipeline.
 
@@ -158,7 +161,7 @@ For informality prediction, the relevant harmonized worker attributes are primar
 - `sector`
 - `lugar_trabajo` (place of work: `establecimiento`, `comercio_o_puesto`, `otra_vivienda`, `otro_o_sin_local`; from the ENOE workplace questions and the OD work-trip destination)
 
-If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `ijm.OD_SECTOR_FEATURES` and `ijm.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels, the work-trip destination features `ijm.OD_DESTINATION_FEATURES`, built by `ijm.add_destination_features`, and the mobility features `ijm.OD_MOBILITY_FEATURES`).
+If the economic sector is unavailable, it must first be estimated with the giro model: `od_sector.build_worker_features(eodgdl.load_eod())` builds the worker frame, `od_sector.impute_giro(bundle["model_with_education"], bundle["model_without_education"], frame, destination_models=bundle["destination_models"])` scores it, and `ijm.attach_sector_probabilities(od_harmonized, od_giro)` collapses the result to the harmonized sector classes.
 
 All categorical variables should use the same categories established during the harmonization stage.
 
@@ -171,6 +174,7 @@ For downstream applications, the main variables to retain are:
 - `prob_sector_manufactura_construccion`
 - `prob_sector_servicios_transporte`
 - `sector_final`
+- `prob_giro_<giro>` (from `od_giro_imputed.parquet`, the five native OD activity levels)
 - `prob_informal`
 - `informal_sampled`
 - `informal_predicted`

@@ -12,7 +12,6 @@ import pandas as pd
 from mxcensus.enoe import _DWELLING_KEY_SPEC, _level_key
 
 from .common import load_config
-from .destination_features import add_destination_features
 
 # ENOE
 _ENOE = load_config("enoe")
@@ -181,7 +180,6 @@ def generate_od_dataframe():
     )
     od = od[od["trabajo_semana_pasada"].isin(OD_EMPLOYED_CATEGORIES)].copy()
     od = od.rename(columns=OD_RENAMES)
-    od = add_destination_features(od)
     # eodgdl delivers pandas Categoricals; plain strings are simpler for mapping, sklearn and parquet.
     categorical_columns = od.columns[od.dtypes.eq("category")]
     od[categorical_columns] = od[categorical_columns].astype("string")

@@ -421,6 +421,43 @@ def harmonize_od_sector(od):
     return od
 
 
+def attach_sector_probabilities(od, od_giro):
+    """Collapse the OD giro model's output (``od_sector``: ``prob_giro_<slug>`` and the ``giro_*`` bookkeeping
+    columns, keyed by ``folio_vivienda``/``folio_habitante``) to the harmonized sector classes.
+
+    The giro -> sector map (``sector.yaml`` ``od_giro``) is many-to-one, so ``prob_sector_<class>`` is the sum of the
+    giro probabilities (lossless for the informality model). Adds ``prob_sector_<class>``, ``sector_final`` (the
+    observed sector, or the arg-max class for imputed rows), ``sector_fue_imputado``, ``sector_model_used``,
+    ``sector_prediction_confidence`` and ``sector_marginalized_features``.
+    """
+    from .common import SECTOR_CLASSES
+
+    giro_to_sector = load_mapping("sector")["od_giro"]
+    keys = ["folio_vivienda", "folio_habitante"]
+    giro = od_giro.set_index(keys)
+    od = od.copy()
+    index = pd.MultiIndex.from_frame(od[keys])
+    missing = ~index.isin(giro.index)
+    assert not missing.any(), f"{int(missing.sum())} OD workers have no giro-model output"
+    giro = giro.reindex(index)
+    for sector_class in SECTOR_CLASSES:
+        columns = [f"prob_giro_{slug}" for slug, target in giro_to_sector.items() if target == sector_class]
+        od[f"prob_sector_{sector_class}"] = giro[columns].sum(axis=1).to_numpy()
+    probability_columns = [f"prob_sector_{sector_class}" for sector_class in SECTOR_CLASSES]
+    imputed = giro["giro_fue_imputado"].to_numpy(dtype=bool)
+    assert (imputed == od["sector_desconocido"].to_numpy(dtype=bool)).all(), "giro-model imputation flags disagree with sector_desconocido"
+    argmax = np.array(SECTOR_CLASSES)[od[probability_columns].to_numpy().argmax(axis=1)]
+    od["sector_final"] = pd.Series(np.where(imputed, argmax, od["sector"].astype(object)), index=od.index, dtype="string")
+    od["sector_fue_imputado"] = imputed
+    od["sector_model_used"] = giro["giro_model_used"].astype("string").to_numpy()
+    od["sector_prediction_confidence"] = np.where(imputed, od[probability_columns].max(axis=1), np.nan)
+    od["sector_marginalized_features"] = giro["giro_marginalized_features"].astype("string").to_numpy()
+    maximum_error = float(np.max(np.abs(od[probability_columns].sum(axis=1) - 1.0)))
+    assert maximum_error < 1e-8, f"Collapsed sector probabilities do not sum to one (max error {maximum_error:.3e})"
+
+    return od
+
+
 # PLACE OF WORK (review item 4.2)
 def harmonize_enoe_workplace(enoe):
     """``lugar_trabajo`` from COE1 section IV. Levels shared with the OD's work-trip destination type:

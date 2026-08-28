@@ -28,10 +28,8 @@ household_size:
 # 5 = sector informal, 6 = trabajo doméstico remunerado, 7 = agricultura de subsistencia.
 informal_sector_tue2: [5, 6, 7]
 
-# Fixed levels of the harmonized categorical features (build_category_levels). Levels of raw OD columns used
-# directly by the sector model (ocupacion_raw, trabajo_semana_pasada, centralidad, destino_trabajo, modo_trabajo,
-# n_autos_camionetas) come from the eodgdl pandera schemas; destino_ambito from config/od.yaml; municipio, edad_cat,
-# tamano_viv_cat and sector from the entries above. The missing label is appended to every feature.
+# Fixed levels of the harmonized categorical features (build_category_levels); municipio, edad_cat, tamano_viv_cat and
+# sector are composed from the entries above. The missing label is appended to every feature.
 category_levels:
   genero: [H, F]
   ocupacion: [trabajador, independiente, sin_pago]
@@ -39,4 +37,3 @@ category_levels:
   estado_civil: [union_libre, separado, divorciado, viudo, casado, soltero]
   parentesco: [jefe_del_hogar, conyuge, hijo, otro_parentesco, sin_parentesco]
   lugar_trabajo: [establecimiento, comercio_o_puesto, otra_vivienda, otro_o_sin_local]
-  weekend_dest_trabajar: [Sí, "No"]
