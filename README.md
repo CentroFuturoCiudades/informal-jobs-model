@@ -10,7 +10,7 @@ This repository estimates whether workers in the Guadalajara Metropolitan Area O
 
 Both surveys are loaded through the project's data packages, which download and cache the raw tables on first use, so no survey files need to be stored in this repository:
 
-- **ENOE** (Encuesta Nacional de Ocupación y Empleo, INEGI) via [`mxcensus`](https://github.com/CentroFuturoCiudades/mxcensus). `mxcensus.load_enoe_persons(period=..., ent=14)` returns the sociodemographic roster (SDEM) joined with the two occupation questionnaires (COE1, COE2) for one quarter, restricted to Jalisco; the pipeline pools the eight quarters 2022-T1 to 2023-T4 (`src.ENOE_PERIODS`, ~50k workers; survey weights divided by the number of quarters so totals stay at the average quarterly population, panel visits grouped by the cross-quarter household key), with 2023-T1 as the reference quarter matching the OD fieldwork. The pipeline keeps (`src.ENOE_OUTPUT_COLUMNS`):
+- **ENOE** (Encuesta Nacional de Ocupación y Empleo, INEGI) via [`mxcensus`](https://github.com/CentroFuturoCiudades/mxcensus). `mxcensus.load_enoe_persons(period=..., ent=14)` returns the sociodemographic roster (SDEM) joined with the two occupation questionnaires (COE1, COE2) for one quarter, restricted to Jalisco; the pipeline pools the eight quarters 2022-T1 to 2023-T4 (`ijm.ENOE_PERIODS`, ~50k workers; survey weights divided by the number of quarters so totals stay at the average quarterly population, panel visits grouped by the cross-quarter household key), with 2023-T1 as the reference quarter matching the OD fieldwork. The pipeline keeps (`ijm.ENOE_OUTPUT_COLUMNS`):
     - `tipo`, `mes_cal`, `cd_a`, `ent`, `con`, `v_sel`, `n_hog`, `h_mud`, `n_ren`: dwelling, household and person identifiers
     - `mun`: municipality
     - `survey_weight` (`fac_tri`), `survey_stratum` (`est_d_tri`, sampling-design stratum), `survey_psu` (`upm`): survey design variables; `estrato_socioeconomico` (`est`) is INEGI's socio-economic stratum
@@ -39,7 +39,7 @@ Both surveys are loaded through the project's data packages, which download and 
     - `destino_trabajo`, `destino_cvegeo`, `destino_zona`: type, INEGI code and zone of the most frequent work-trip destination (from the trips table); `destino_ambito` (urban AGEB / rural locality / airport / outside the metro zone / unknown) and the DENUE establishment mix at the destination (`dest_share_*`, `dest_share_grandes`, `dest_establecimientos_log`; DENUE release 2022-11 via `mxcensus`, codes resolved through `eodgdl.load_imeplan_agebs` and the Marco Geoestadístico) — used by the sector model only
     - `dwelling_size` (`personas_en_vivienda`): household size category
 
-    Raw OD columns whose `eodgdl` names coincide with the harmonized attributes created in stage 2 (`ocupacion`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`) carry a `_raw` suffix (`src.OD_RAW_COLUMN_RENAMES`); the unsuffixed name always refers to the harmonized attribute.
+    Raw OD columns whose `eodgdl` names coincide with the harmonized attributes created in stage 2 (`ocupacion`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`) carry a `_raw` suffix (`ijm.OD_RAW_COLUMN_RENAMES`); the unsuffixed name always refers to the harmonized attribute.
 
 This survey does not directly identify informal employment status; therefore, this variable must be estimated or assigned using information from the ENOE and the variables shared between both sources.
 
@@ -50,9 +50,9 @@ The unit of analysis is the employed individuals or workers who appear in both d
 ## 2. Methodology
 
 ### 2.1 Database structure
-In this step, we load the ENOE and OD tables through `mxcensus` and `eodgdl`. We then filter the data to work exclusively with employed individuals and with observations corresponding to the area of interest (Jalisco). For the ENOE, workers are INEGI's employed population (`clase2 == 1`: worked in the reference week or had a job and was temporarily absent) within the survey's analytical universe — definitive interview (`r_def == 0`), habitual or new residents (`c_res in {1, 3}`) — and ages 12 to 98 (INEGI reports employment for ages 15+; the floor is lowered to 12 because the OD survey records working 12–14 year olds). Stage-1 settings (pooled quarters, identifier keys, output columns, renames, OD employment categories, DENUE release) are declared in `src/config/enoe.yaml` and `src/config/od.yaml`. Additionally, for the ENOE, we calculate household size by counting the number of people associated with each dwelling using their identifiers, while for the OD, this information is imported directly from the dwelling table.
+In this step, we load the ENOE and OD tables through `mxcensus` and `eodgdl`. We then filter the data to work exclusively with employed individuals and with observations corresponding to the area of interest (Jalisco). For the ENOE, workers are INEGI's employed population (`clase2 == 1`: worked in the reference week or had a job and was temporarily absent) within the survey's analytical universe — definitive interview (`r_def == 0`), habitual or new residents (`c_res in {1, 3}`) — and ages 12 to 98 (INEGI reports employment for ages 15+; the floor is lowered to 12 because the OD survey records working 12–14 year olds). Stage-1 settings (pooled quarters, identifier keys, output columns, renames, OD employment categories, DENUE release) are declared in `src/informal_jobs_model/config/enoe.yaml` and `src/informal_jobs_model/config/od.yaml`. Additionally, for the ENOE, we calculate household size by counting the number of people associated with each dwelling using their identifiers, while for the OD, this information is imported directly from the dwelling table.
 
-To validate changes to the data sources, `src/compare_outputs.py` compares the outputs of a run against a reference copy (`uv run python -m src outputs_baseline outputs`).
+To validate changes to the data sources, `src/informal_jobs_model/compare_outputs.py` compares the outputs of a run against a reference copy (`uv run python -m informal_jobs_model outputs_baseline outputs`).
 
 **Notebook**: `01_generate_enoe_od_base_dataframes.ipynb`
 **Module:** `generate_enoe_od_dataframes.py`
@@ -158,7 +158,7 @@ For informality prediction, the relevant harmonized worker attributes are primar
 - `sector`
 - `lugar_trabajo` (place of work: `establecimiento`, `comercio_o_puesto`, `otra_vivienda`, `otro_o_sin_local`; from the ENOE workplace questions and the OD work-trip destination)
 
-If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels, the work-trip destination features `src.OD_DESTINATION_FEATURES`, built by `src.add_destination_features`, and the mobility features `src.OD_MOBILITY_FEATURES`).
+If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `ijm.OD_SECTOR_FEATURES` and `ijm.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels, the work-trip destination features `ijm.OD_DESTINATION_FEATURES`, built by `ijm.add_destination_features`, and the mobility features `ijm.OD_MOBILITY_FEATURES`).
 
 All categorical variables should use the same categories established during the harmonization stage.
 
