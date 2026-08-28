@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, f1_score, log_loss, precision_recall_fscore_support
 from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
@@ -110,18 +111,21 @@ def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random
     tree_numerical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="median"))])
     tree_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error", sparse_output=False))])
 
+    # The pipelines are self-contained: the first step selects the features and cleans them (numeric coercion,
+    # categorical strings with the missing label), so a pickled bundle applies to a raw harmonized frame.
+    prepare = FunctionTransformer(prepare_model_features, kw_args={"features": list(sector_features)})
     linear_preprocessor = ColumnTransformer([("numerical", linear_numerical_preprocessor, numerical_features), ("categorical", linear_categorical_preprocessor, categorical_features)])
     tree_preprocessor = ColumnTransformer([("numerical", tree_numerical_preprocessor, numerical_features), ("categorical", tree_categorical_preprocessor, categorical_features)])
 
     models = {
         "LogisticRegression": {
-            "model": Pipeline([("preprocessor", linear_preprocessor), ("classifier", LogisticRegression(max_iter=2000, random_state=random_state))]),
+            "model": Pipeline([("prepare", prepare), ("preprocessor", linear_preprocessor), ("classifier", LogisticRegression(max_iter=2000, random_state=random_state))]),
             "params": {
                 "classifier__C": [0.1, 1.0, 10.0]
             }
         },
         "RandomForest": {
-            "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", RandomForestClassifier(n_estimators=500, class_weight=None, random_state=random_state, n_jobs=-1))]),
+            "model": Pipeline([("prepare", prepare), ("preprocessor", tree_preprocessor), ("classifier", RandomForestClassifier(n_estimators=500, class_weight=None, random_state=random_state, n_jobs=-1))]),
             "params": {
                 "classifier__max_leaf_nodes": [25, 50, 100],
                 "classifier__max_features": ["sqrt", 0.7],
@@ -129,7 +133,7 @@ def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random
             }
         },
         "GradientBoosting": {
-            "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
+            "model": Pipeline([("prepare", prepare), ("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
             "params": {
                 "classifier__max_iter": [50, 100, 200, 400],
                 "classifier__learning_rate": [0.05, 0.1],
@@ -186,7 +190,7 @@ def tune_probabilistic_sector_models(X, y, sample_weights, groups, sector_featur
                 fold_log_loss.append(log_loss(y_validation, probabilities, labels=classes, sample_weight=weights_validation))
                 fold_balanced_accuracy.append(balanced_accuracy_score(y_validation, predictions, sample_weight=weights_validation))
                 fold_accuracy.append(accuracy_score(y_validation, predictions, sample_weight=weights_validation))
-                fold_f1_macro.append(f1_score(y_validation, predictions, average="macro", sample_weight=weights_validation))
+                fold_f1_macro.append(f1_score(y_validation, predictions, average="macro", sample_weight=weights_validation, zero_division=0))
 
             result = {
                 "model": model_name,
@@ -240,10 +244,10 @@ def evaluate_probabilistic_sector_model(model, validation_data, sector_features=
     metrics = pd.DataFrame({
         "accuracy": [accuracy_score(y_true, predictions)],
         "balanced_accuracy": [balanced_accuracy_score(y_true, predictions)],
-        "f1_macro": [f1_score(y_true, predictions, average="macro")],
+        "f1_macro": [f1_score(y_true, predictions, average="macro", zero_division=0)],
         "weighted_accuracy": [accuracy_score(y_true, predictions, sample_weight=sample_weights)],
         "weighted_balanced_accuracy": [balanced_accuracy_score(y_true, predictions, sample_weight=sample_weights)],
-        "weighted_f1_macro": [f1_score(y_true, predictions, average="macro", sample_weight=sample_weights)],
+        "weighted_f1_macro": [f1_score(y_true, predictions, average="macro", sample_weight=sample_weights, zero_division=0)],
         "weighted_log_loss": [log_loss(y_true, probabilities, labels=classes, sample_weight=sample_weights)]
     })
 
@@ -316,6 +320,10 @@ def refit_probabilistic_sector_model(model, od, sector_features=OD_SECTOR_FEATUR
 
 def impute_missing_sectors_hybrid(model_with_education, model_without_education, od, with_education_features=OD_SECTOR_FEATURES, without_education_features=OD_ROBUST_SECTOR_FEATURES):
     od = od.copy()
+    for model in (model_with_education, model_without_education):
+        assert set(model.named_steps["classifier"].classes_) == set(SECTOR_CLASSES), f"Sector model classes {list(model.named_steps['classifier'].classes_)} differ from SECTOR_CLASSES"
+    known_outside = set(od.loc[~od["sector_desconocido"].astype(bool), "sector"]) - set(SECTOR_CLASSES)
+    assert not known_outside, f"Known-sector rows carry classes outside SECTOR_CLASSES: {known_outside}"
 
     unknown_sector = od["sector_desconocido"].astype(bool)
     known_sector = ~unknown_sector

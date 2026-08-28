@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, f1_score, log_loss, roc_auc_score
 from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
@@ -17,7 +18,7 @@ from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootst
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 INFORMALITY_ROBUST_FEATURES = ["genero", "ocupacion", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
-ENOE_HOUSEHOLD_COLUMNS = ["tipo", "mes_cal", "cd_a", "ent", "con", "v_sel", "n_hog", "h_mud"]
+from .generate_enoe_od_dataframes import ENOE_HOUSEHOLD_KEYS as ENOE_HOUSEHOLD_COLUMNS  # household (not person) key: CV groups
 
 # General helpers
 
@@ -143,18 +144,21 @@ def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
     tree_numerical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="median"))])
     tree_categorical_preprocessor = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value="no_especificado")), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error", sparse_output=False))])
 
+    # The pipelines are self-contained: the first step selects the features and cleans them (numeric coercion,
+    # categorical strings with the missing label), so a pickled bundle applies to a raw harmonized frame.
+    prepare = FunctionTransformer(prepare_model_features, kw_args={"features": list(features)})
     linear_preprocessor = ColumnTransformer([("numerical", linear_numerical_preprocessor, numerical_features), ("categorical", linear_categorical_preprocessor, categorical_features)])
     tree_preprocessor = ColumnTransformer([("numerical", tree_numerical_preprocessor, numerical_features), ("categorical", tree_categorical_preprocessor, categorical_features)])
 
     models = {
         "LogisticRegression": {
-            "model": Pipeline([("preprocessor", linear_preprocessor), ("classifier", LogisticRegression(max_iter=2000, random_state=random_state))]),
+            "model": Pipeline([("prepare", prepare), ("preprocessor", linear_preprocessor), ("classifier", LogisticRegression(max_iter=2000, random_state=random_state))]),
             "params": {
                 "classifier__C": [0.1, 1.0, 10.0]
             }
         },
         "RandomForest": {
-            "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", RandomForestClassifier(n_estimators=300, class_weight=None, random_state=random_state, n_jobs=-1))]),
+            "model": Pipeline([("prepare", prepare), ("preprocessor", tree_preprocessor), ("classifier", RandomForestClassifier(n_estimators=300, class_weight=None, random_state=random_state, n_jobs=-1))]),
             "params": {
                 "classifier__max_leaf_nodes": [25, 50, 100],
                 "classifier__max_features": ["sqrt", 0.7],
@@ -162,7 +166,7 @@ def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
             }
         },
         "GradientBoosting": {
-            "model": Pipeline([("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
+            "model": Pipeline([("prepare", prepare), ("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
             "params": {
                 "classifier__max_iter": [50, 100, 200, 400],
                 "classifier__learning_rate": [0.05, 0.1],
@@ -228,7 +232,7 @@ def tune_informality_models(X, y, sample_weights, groups, features=INFORMALITY_F
                 fold_brier.append(np.average((informal_probability - y_validation.to_numpy()) ** 2, weights=weights_validation))
                 fold_balanced_accuracy.append(balanced_accuracy_score(y_validation, predictions, sample_weight=weights_validation))
                 fold_accuracy.append(accuracy_score(y_validation, predictions, sample_weight=weights_validation))
-                fold_f1.append(f1_score(y_validation, predictions, sample_weight=weights_validation))
+                fold_f1.append(f1_score(y_validation, predictions, sample_weight=weights_validation, zero_division=0))
                 fold_auc.append(roc_auc_score(y_validation, informal_probability, sample_weight=weights_validation))
 
             result = {
@@ -310,10 +314,10 @@ def evaluate_informality_model(model, validation_data, features=INFORMALITY_FEAT
     metrics = pd.DataFrame({
         "accuracy": [accuracy_score(y_true, predictions)],
         "balanced_accuracy": [balanced_accuracy_score(y_true, predictions)],
-        "f1": [f1_score(y_true, predictions)],
+        "f1": [f1_score(y_true, predictions, zero_division=0)],
         "weighted_accuracy": [accuracy_score(y_true, predictions, sample_weight=sample_weights)],
         "weighted_balanced_accuracy": [balanced_accuracy_score(y_true, predictions, sample_weight=sample_weights)],
-        "weighted_f1": [f1_score(y_true, predictions, sample_weight=sample_weights)],
+        "weighted_f1": [f1_score(y_true, predictions, sample_weight=sample_weights, zero_division=0)],
         "weighted_roc_auc": [roc_auc_score(y_true, informal_probability, sample_weight=sample_weights)],
         "weighted_log_loss": [log_loss(y_true, probabilities, labels=classes, sample_weight=sample_weights)],
         "weighted_brier_score": [np.average((informal_probability - y_true.to_numpy()) ** 2, weights=sample_weights)],
@@ -421,9 +425,10 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
 
     assert_known_levels(prepare_informality_features(scoring_data, [column for column in with_education_features if column != "sector"]))
 
+    scenario_columns = list(dict.fromkeys(list(with_education_features) + list(without_education_features)))
+    scenario_base = scoring_data[scenario_columns].copy()
     for sector_class in SECTOR_CLASSES:
-        scenario_data = scoring_data.copy()
-        scenario_data["sector"] = sector_class
+        scenario_data = scenario_base.assign(sector=sector_class)
 
         conditional_probability = np.full(len(od), np.nan)
 

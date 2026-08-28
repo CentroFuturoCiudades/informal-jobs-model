@@ -8,6 +8,8 @@ AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_4
 # The nine municipalities of the Guadalajara Metropolitan Area as covered by the OD survey (eodgdl schema).
 AMG_MUNICIPALITIES = ["guadalajara", "zapopan", "tlaquepaque", "tlajomulco", "tonala", "el_salto", "juanacatlan", "ixtlahuacan_membrillos", "zapotlanejo"]
 NUMERIC_FEATURES = ["edad_num"]
+# Harmonized attributes shared by both surveys (stage 2 output); the model feature lists are subsets of these.
+HARMONIZED_FEATURES = ["genero", "ocupacion", "edad_num", "edad_cat", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
 # Household size is collapsed at 7+: the ENOE roster count and the OD self-report diverge 5x above 8 persons.
 HOUSEHOLD_SIZE_LABELS = ["1", "2", "3", "4", "5", "6", "7_y_mas"]
 HOUSEHOLD_SIZE_CAP = 10  # tamano_viv_num is capped here in both surveys (the OD answer stops at "10 y +")

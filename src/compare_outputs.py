@@ -1,25 +1,38 @@
 """Compare pipeline outputs against a reference run (e.g. ``outputs_baseline/``).
 
-Usage: ``uv run python -m src.compare_outputs outputs_baseline outputs [--stage 1|2|all]``
-Every function tolerates missing files so partial re-runs can be compared.
+Usage: ``uv run python -m src outputs_baseline outputs [--stage 1|2|models|all]`` (``models`` = the outputs of
+notebooks 04-05). Every function tolerates missing files so partial re-runs can be compared.
 """
 import argparse
 from pathlib import Path
 
 import pandas as pd
 
+from .common import HARMONIZED_FEATURES
 from .diagnose_enoe_od_dataframes import calculate_weighted_distribution, calculate_weighted_informality_rate
 from .generate_enoe_od_dataframes import ENOE_PERSON_KEYS
 
 STAGE_FILES = {
-    1: ["enoe_workers", "od_workers"],
-    2: ["enoe_harmonized", "od_harmonized"],
-    3: ["od_sector_imputed", "od_informality_imputed"],
+    "1": ["enoe_workers", "od_workers"],
+    "2": ["enoe_harmonized", "od_harmonized"],
+    "models": ["od_sector_imputed", "od_informality_imputed"],
 }
-HARMONIZED_COLUMNS = ["genero", "ocupacion", "edad_cat", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
-# The baseline used the raw IMEPLAN header names for the OD keys.
-OD_KEY_ALIASES = {"Folio Vivienda": "folio_vivienda", "Folio Habitante": "folio_habitante"}
+STAGE_ALIASES = {"3": "models"}
+HARMONIZED_COLUMNS = [column for column in HARMONIZED_FEATURES if column != "edad_num"]
 OD_KEYS = ["folio_vivienda", "folio_habitante"]
+
+
+def _od_column_aliases():
+    """Raw IMEPLAN header -> pipeline name, so a pre-migration reference compares column-for-column."""
+    from eodgdl import imeplan_rename_map
+
+    from .generate_enoe_od_dataframes import OD_RENAMES
+
+    aliases = {}
+    for table in ("habitantes", "viviendas"):
+        for raw, renamed in imeplan_rename_map()[table].items():
+            aliases[raw] = OD_RENAMES.get(renamed, renamed)
+    return aliases
 
 
 def _weight_column(name):
@@ -29,11 +42,17 @@ def _read(directory, name):
     path = Path(directory) / f"{name}.parquet"
     if not path.exists():
         return None
-    return pd.read_parquet(path).rename(columns=OD_KEY_ALIASES)
+    frame = pd.read_parquet(path)
+    if name.startswith("od"):
+        frame = frame.rename(columns=_od_column_aliases())
+    return frame
+
+def _stages(stage):
+    stage = STAGE_ALIASES.get(str(stage), str(stage))
+    return list(STAGE_FILES) if stage == "all" else [stage]
 
 def _files_for_stage(stage):
-    stages = [1, 2, 3] if stage == "all" else [int(stage)]
-    return [name for s in stages for name in STAGE_FILES[s]]
+    return [name for s in _stages(stage) for name in STAGE_FILES[s]]
 
 def _abbreviate(items, limit=6):
     return items if len(items) <= limit else items[:limit] + [f"... (+{len(items) - limit})"]
@@ -59,7 +78,7 @@ def compare_weighted_totals(baseline_dir, new_dir, files):
         if base is None or new is None or weight not in base or weight not in new:
             continue
         total_base, total_new = base[weight].sum(), new[weight].sum()
-        rows.append({"file": name, "weight": weight, "total_base": total_base, "total_new": total_new, "ratio": total_new / total_base})
+        rows.append({"file": name, "weight": weight, "total_base": total_base, "total_new": total_new, "ratio": total_new / total_base if total_base else float("nan")})
     return pd.DataFrame(rows)
 
 def compare_key_overlap(baseline_dir, new_dir):
@@ -93,7 +112,7 @@ def compare_category_distributions(base, new, columns, weight_column):
 
 def compare_harmonized_distributions(baseline_dir, new_dir, columns=HARMONIZED_COLUMNS):
     results = {}
-    for name in STAGE_FILES[2]:
+    for name in STAGE_FILES["2"]:
         base, new = _read(baseline_dir, name), _read(new_dir, name)
         if base is None or new is None:
             continue
@@ -107,9 +126,13 @@ def compare_enoe_informality(baseline_dir, new_dir):
     return pd.DataFrame({"baseline": calculate_weighted_informality_rate(base).iloc[0], "new": calculate_weighted_informality_rate(new).iloc[0]})
 
 def _od_informality_summary(od):
+    if "prob_informal" not in od:
+        return pd.Series(dtype=float)
     weighted_mean = lambda frame: (frame["prob_informal"] * frame["expansion_factor"]).sum() / frame["expansion_factor"].sum()
     summary = {"overall": weighted_mean(od)}
-    summary["hard_rate"] = (od["informal_predicted"] * od["expansion_factor"]).sum() / od["expansion_factor"].sum()
+    for column, label in (("informal_sampled", "sampled_rate"), ("informal_predicted", "hard_rate")):
+        if column in od:
+            summary[label] = (od[column] * od["expansion_factor"]).sum() / od["expansion_factor"].sum()
     for group_column in ("sector_final", "municipio"):
         if group_column in od:
             for category, frame in od.groupby(group_column):
@@ -126,19 +149,21 @@ def compare_od_informality(baseline_dir, new_dir):
 
 def compare_all(baseline_dir, new_dir, stage="all"):
     files = _files_for_stage(stage)
+    stages = _stages(stage)
     return {
         "row_counts": compare_row_counts(baseline_dir, new_dir, files),
         "weighted_totals": compare_weighted_totals(baseline_dir, new_dir, files),
-        "key_overlap": compare_key_overlap(baseline_dir, new_dir),
-        "harmonized_distributions": compare_harmonized_distributions(baseline_dir, new_dir) if stage in ("2", "all", 2) else {},
-        "enoe_informality": compare_enoe_informality(baseline_dir, new_dir) if stage in ("2", "all", 2) else None,
-        "od_informality": compare_od_informality(baseline_dir, new_dir) if stage in ("3", "all", 3) else None,
+        "key_overlap": compare_key_overlap(baseline_dir, new_dir) if "1" in stages else pd.DataFrame(),
+        "harmonized_distributions": compare_harmonized_distributions(baseline_dir, new_dir) if "2" in stages else {},
+        "enoe_informality": compare_enoe_informality(baseline_dir, new_dir) if "2" in stages else None,
+        "od_informality": compare_od_informality(baseline_dir, new_dir) if "models" in stages else None,
     }
 
 def print_comparison(results, max_difference_pp=0.5):
     with pd.option_context("display.max_rows", 200, "display.width", 200, "display.float_format", "{:,.4f}".format):
         for title in ("row_counts", "weighted_totals", "key_overlap"):
-            print(f"== {title}\n{results[title].to_string(index=False) if len(results[title]) else '(nothing to compare)'}\n")
+            if len(results[title]):
+                print(f"== {title}\n{results[title].to_string(index=False)}\n")
         for name, table in results["harmonized_distributions"].items():
             flagged = table[table["difference_pp"].abs() > max_difference_pp]
             print(f"== {name}: harmonized distributions, max |diff| = {table['difference_pp'].abs().max():.3f} pp; {len(flagged)} categories above {max_difference_pp} pp")
@@ -153,7 +178,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("baseline_dir")
     parser.add_argument("new_dir")
-    parser.add_argument("--stage", default="all", choices=["1", "2", "3", "all"])
+    parser.add_argument("--stage", default="all", choices=["1", "2", "models", "3", "all"], help="'models' (alias '3') = outputs of notebooks 04-05")
     parser.add_argument("--max-difference-pp", type=float, default=0.5)
     args = parser.parse_args()
     print_comparison(compare_all(args.baseline_dir, args.new_dir, args.stage), args.max_difference_pp)

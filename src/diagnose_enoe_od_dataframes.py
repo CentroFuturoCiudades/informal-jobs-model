@@ -1,6 +1,6 @@
 import pandas as pd
 
-from .common import AMG_MUNICIPALITIES
+from .common import AMG_MUNICIPALITIES, HARMONIZED_FEATURES, identify_missing_category
 
 TARGET_MUNICIPALITIES = AMG_MUNICIPALITIES
 
@@ -97,7 +97,7 @@ def calculate_missingness(dataframe, columns, weight_column, missing_label="no_e
     total_weight = dataframe[weight_column].sum()
 
     for column in columns:
-        missing = dataframe[column].isna() | dataframe[column].eq(missing_label)
+        missing = identify_missing_category(dataframe[column])  # same rule as the model stages (strip + lower)
         missing_rows = missing.sum()
         missing_weight = dataframe.loc[missing, weight_column].sum()
 
