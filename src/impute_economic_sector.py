@@ -11,7 +11,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
@@ -467,3 +467,29 @@ def adjust_imputed_sector_share(od_imputed, sector_class, target_share=None):
     validate_sector_probability_rows(od_imputed)
 
     return od_imputed, float(factor)
+
+
+def sector_test_metrics_with_uncertainty(model, test_data, sector_features=OD_SECTOR_FEATURES, n_bootstrap=500, random_state=42):
+    """Held-out log loss / accuracy / macro-F1 with household-bootstrap intervals, plus the weighted-marginal baseline."""
+    from sklearn.metrics import log_loss
+
+    X = prepare_sector_features(test_data, sector_features)
+    probabilities = normalize_predicted_probabilities(model.predict_proba(X))
+    classes = list(model.named_steps["classifier"].classes_)
+    frame = pd.DataFrame(probabilities, columns=[f"p_{c}" for c in classes])
+    frame["y"] = test_data["sector"].to_numpy(); frame["w"] = test_data["expansion_factor"].astype(float).to_numpy(); frame["household"] = test_data["folio_vivienda"].astype(str).to_numpy()
+    probability_columns = [f"p_{c}" for c in classes]
+
+    def metrics(data):
+        p = data[probability_columns].to_numpy(); predicted = np.array(classes)[p.argmax(axis=1)]
+        return {
+            "weighted_log_loss": log_loss(data["y"], p, labels=classes, sample_weight=data["w"]),
+            "marginal_log_loss": marginal_log_loss(data["y"], data["w"], classes),
+            "weighted_accuracy": accuracy_score(data["y"], predicted, sample_weight=data["w"]),
+            "weighted_f1_macro": f1_score(data["y"], predicted, average="macro", sample_weight=data["w"], zero_division=0),
+        }
+
+    summary = bootstrap_by_group(frame, "household", metrics, n_bootstrap=n_bootstrap, random_state=random_state)
+    summary.loc["relative_improvement_over_marginal", "estimate"] = 1 - summary.loc["weighted_log_loss", "estimate"] / summary.loc["marginal_log_loss", "estimate"]
+
+    return summary

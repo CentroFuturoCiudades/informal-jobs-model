@@ -386,3 +386,63 @@ def reweight_to_target_profile(source_rows, target_rows, features, source_weight
     })
 
     return reweighted, diagnostics
+
+
+# Baselines, per-fold tables and uncertainty (review item 2.6)
+def marginal_log_loss(y_true, sample_weights, classes=None):
+    """Weighted log loss of the constant predictor that outputs the weighted class shares (the honest reference
+    for a probabilistic classifier; log(K) is the uniform predictor, which nobody would use)."""
+    from sklearn.metrics import log_loss
+
+    y = pd.Series(np.asarray(y_true)); w = np.asarray(sample_weights, dtype=float)
+    classes = list(classes) if classes is not None else sorted(y.unique())
+    shares = np.array([w[(y == c).to_numpy()].sum() for c in classes]) / w.sum()
+    probabilities = np.tile(shares, (len(y), 1))
+
+    return float(log_loss(y, probabilities, labels=classes, sample_weight=w))
+
+def fold_table(model_summary):
+    """Per-fold log losses of the selected configuration of each family (from ``tune_*`` output)."""
+    rows = {}
+    for _, row in model_summary.iterrows():
+        rows[row["model"]] = pd.Series(row["fold_log_losses"], index=[f"fold_{k}" for k in range(len(row["fold_log_losses"]))])
+    table = pd.DataFrame(rows).T
+    table["mean"] = table.mean(axis=1)
+    table["sd_across_folds"] = table.iloc[:, :-1].std(axis=1, ddof=1)
+
+    return table
+
+def bootstrap_by_group(frame, group_column, metric_function, n_bootstrap=500, random_state=42, alpha=0.05):
+    """Cluster bootstrap: resample the groups (households) of ``frame`` with replacement and recompute
+    ``metric_function(frame) -> dict``. Returns point estimate and percentile interval per metric."""
+    rng = np.random.default_rng(random_state)
+    groups = frame[group_column].astype(str).to_numpy()
+    unique_groups = np.unique(groups)
+    members = pd.Series(np.arange(len(frame))).groupby(groups).apply(lambda s: s.to_numpy()).to_dict()
+    point = metric_function(frame)
+    samples = []
+    for _ in range(n_bootstrap):
+        drawn = rng.choice(unique_groups, size=len(unique_groups), replace=True)
+        index = np.concatenate([members[g] for g in drawn])
+        samples.append(metric_function(frame.iloc[index]))
+    samples = pd.DataFrame(samples)
+    summary = pd.DataFrame({"estimate": pd.Series(point), "ci_low": samples.quantile(alpha / 2), "ci_high": samples.quantile(1 - alpha / 2), "bootstrap_sd": samples.std(ddof=1)})
+
+    return summary
+
+def cross_validate_grouped(model, X, y, sample_weights, groups, cv_splits=5, random_state=42, positive_class=None):
+    """Per-fold weighted log loss of a pipeline under a StratifiedGroupKFold with the given ``groups``
+    (e.g. sampling units instead of households), for robustness comparisons."""
+    from sklearn.base import clone
+    from sklearn.metrics import log_loss
+    from sklearn.model_selection import StratifiedGroupKFold
+
+    X = X.reset_index(drop=True); y = pd.Series(np.asarray(y)); w = pd.Series(np.asarray(sample_weights, dtype=float)); g = pd.Series(np.asarray(groups))
+    losses = []
+    for train_index, validation_index in StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=random_state).split(X, y, groups=g):
+        fold_model = clone(model).fit(X.iloc[train_index], y.iloc[train_index], classifier__sample_weight=w.iloc[train_index])
+        classes = fold_model.named_steps["classifier"].classes_
+        probabilities = normalize_predicted_probabilities(fold_model.predict_proba(X.iloc[validation_index]))
+        losses.append(float(log_loss(y.iloc[validation_index], probabilities, labels=classes, sample_weight=w.iloc[validation_index])))
+
+    return pd.Series(losses, index=[f"fold_{k}" for k in range(len(losses))])

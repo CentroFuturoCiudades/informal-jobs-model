@@ -12,7 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector"]
@@ -530,3 +530,23 @@ def calculate_expected_informality_by_variable(od, column):
     grouped["expected_informality_rate"] = grouped["expected_informal_population"] / grouped["weighted_population"]
 
     return grouped
+
+def informality_test_metrics_with_uncertainty(model, test_data, features=INFORMALITY_FEATURES, n_bootstrap=500, random_state=42):
+    """Held-out log loss / AUC / aggregate gap with household-bootstrap intervals, plus the weighted-marginal baseline."""
+    X = prepare_informality_features(test_data, features)
+    informal_probability, _ = predict_informal_probability(model, X)
+    frame = pd.DataFrame({"y": test_data["informal"].astype(int).to_numpy(), "p": informal_probability, "w": test_data["survey_weight"].astype(float).to_numpy(), "household": test_data[ENOE_HOUSEHOLD_COLUMNS].astype("string").agg("_".join, axis=1).to_numpy()})
+
+    def metrics(data):
+        p = np.column_stack([1 - data["p"], data["p"]])
+        return {
+            "weighted_log_loss": log_loss(data["y"], p, labels=[0, 1], sample_weight=data["w"]),
+            "marginal_log_loss": marginal_log_loss(data["y"], data["w"], [0, 1]),
+            "weighted_roc_auc": roc_auc_score(data["y"], data["p"], sample_weight=data["w"]),
+            "calibration_gap_pp": (np.average(data["p"], weights=data["w"]) - np.average(data["y"], weights=data["w"])) * 100,
+        }
+
+    summary = bootstrap_by_group(frame, "household", metrics, n_bootstrap=n_bootstrap, random_state=random_state)
+    summary.loc["relative_improvement_over_marginal", "estimate"] = 1 - summary.loc["weighted_log_loss", "estimate"] / summary.loc["marginal_log_loss", "estimate"]
+
+    return summary
