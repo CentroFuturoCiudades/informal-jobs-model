@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phases 0–3 done** (2026-08-27). Phase 3 verified by a full 01→05 re-run: every output parquet identical to the pre-Phase-3 run. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phases 0–3 done** (2026-08-27); Phase 4 (model improvements) in progress. Phase 3 verified by a full 01→05 re-run: every output parquet identical to the pre-Phase-3 run. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -181,6 +181,35 @@ Legend: **[D]** = a decision the user must make before implementation; **[R]** =
 - **Done (2026-08-27):** the prose cells of notebooks 04 and 05 that quoted numbers (selected model, metrics, confusion, calibration, usage, headline, by-sector) are now code cells rendering Markdown from the result frames (`from IPython.display import Markdown`), and the hyperparameter grids are listed from `build_*_models()`; `\%` strings are raw; notebook 03 draws the informality profile on a 3×3 grid including `sector` and no longer rebinds `tick_labels`; notebook 04's tautological consistency check, typo and weight-normalization footnote fixed; notebook 02 documents the fallback paths; notebook 01 mentions `EODGDL_CACHE_DIR`; CLAUDE.md lists the bundle keys and the `prepare` step; README notes that `genero` is sex at birth. Verified by a full 01→05 re-run compared with the pre-Phase-3 outputs (see status line).
 
 ---
+
+## Phase 4 — Model improvements (new features, more data) **[R]**
+
+Each item is run as an experiment first — same metro held-out households, paired folds, 1-SE selection, calibration and bootstrap intervals from Phase 2 — and shipped only if it improves the paired-fold log loss; the OD headline and composition are reported before/after in every case.
+
+### 4.1 Pool several ENOE quarters
+- **Why:** one quarter gives 6,973 Jalisco workers; `mxcensus` serves 2022t1–2023t4 (and later) with identical schemas, so 8 quarters give ~50k workers with the same definitions. Wider intervals in 2.6 (log loss ±0.03, gap ±2.6 pp) come mostly from sample size; the rare sector class and the municipality effects are barely estimable on one quarter.
+- **Fix:** `generate_enoe_dataframe(periods=[...])` concatenates quarters with a `period` column, computes dwelling size per quarter, and divides `survey_weight` by the number of quarters (totals stay at population scale; per-quarter benchmark rates reported). The CV/bootstrap group key becomes the **cross-quarter dwelling/household key** (`cd_a, ent, con, v_sel, n_hog, h_mud` — without `tipo`/`mes_cal`, which identify panel visits), so the five visits of a panel household never straddle folds. Benchmark = pooled metro population (per-quarter rates shown).
+- **Verify:** paired-fold log loss of the selected configuration on the 2023t1 metro test households, pooled training vs single quarter; interval widths; OD headline.
+
+### 4.2 Place of work as a shared feature
+- **Why:** ENOE informality is almost determined by the workplace: `tue1` "no establishment" 99–100% informal vs 11–29% in establishments; `ambito1` 69% vs 14%. The OD has the work trip's destination type (Fábrica/taller, Comercio, Oficina, Otra vivienda, Hospital, Escuela, Restaurante…) for ~88% of workers.
+- **Fix:** harmonized `lugar_trabajo` with ~5 levels — establecimiento (factory/workshop, office, hospital, school, restaurant), comercio, otra_vivienda (someone else's home), propia_vivienda_o_sin_local (own home / no fixed place), no_especificado (no work trip recorded) — from ENOE `ambito2`/`tue1` and from the OD work-trip destination (`eodgdl` trips, `motivo_viaje == "Trabajar"`, most frequent destination type per worker). Compare weighted distributions in stage 3 before use.
+- **Verify:** paired-fold gain; the `no_especificado` share on the OD side and how those workers are scored (marginalized); calibration by level.
+
+### 4.3 Household-roster features (exactly shared)
+- **Fix:** from both rosters: number of employed persons in the household, number of children under 12, whether the worker is the only earner, and the household head's education (for non-heads). ENOE: SDEM roster by household key; OD: `hab` by `folio_vivienda`. Added to `INFORMALITY_FEATURES`/`ROBUST` (and to the sector model) after a stage-3 comparison.
+
+### 4.4 DENUE at the work-trip destination (sector model only)
+- **Why:** the sector model uses `centralidad` (71 dummies) as its only spatial signal. The OD records the destination AGEB of the work trip; `mxcensus.load_denue` gives every establishment with SCIAN code and location. The sector mix (and size mix) of establishments at the destination AGEB is a direct predictor of the worker's sector and is available for imputed workers too.
+- **Fix:** per destination AGEB: shares of establishments (and of employment-size classes) in the four harmonized sectors; join to workers by their most frequent work-trip destination; features `dest_share_<sector>`, `dest_establishments`. OD-only, so no ENOE counterpart needed.
+- **Verify:** paired-fold log loss of the sector model; calibration-in-the-large by class; effect on imputed sector composition and the informality headline.
+
+### 4.5 Household income bracket
+- **Why:** ENOE informality by income level: 75% (≤1 MW) → 43% → 29% → 16% (3–5 MW). OD has `ingreso_mensual_hogar` (10 brackets incl. "No sabe"/refused).
+- **Fix/risk:** ENOE labour income summed over the household roster and bracketed to the OD cut points (monthly pesos); ordinal with an explicit missing level. Comparability is imperfect (household total vs labour income; ~20–30% non-response in both). Ship only if the stage-3 distributions are close and the paired-fold gain is clear.
+
+### 4.6 Raking the OD to ENOE margins (reporting)
+- **Fix:** rake the OD expansion factors to the ENOE metro margins on the shared covariates and report the informality rate under both weightings, as the mirror image of the 2.7 decomposition. No change to shipped outputs.
 
 ## Execution order and verification
 
