@@ -9,6 +9,8 @@ import mxcensus
 import pandas as pd
 from mxcensus.enoe import _DWELLING_KEY_SPEC, _level_key
 
+from .destination_features import add_destination_features
+
 
 # ENOE
 ENOE_PERIOD = "2023t1"                      # reference quarter (matches the OD fieldwork)
@@ -136,9 +138,10 @@ def compute_od_work_trip_destination(trips):
     "Trabajar"); persons without a work trip on the survey day are absent (review item 4.2)."""
     work_trips = trips.reset_index()
     work_trips = work_trips[work_trips["motivo_viaje"] == OD_WORK_TRIP_PURPOSE]
-    destination = work_trips.groupby(["folio_vivienda", "folio_habitante"])["tipo_lugar_destino"].agg(lambda values: values.astype(str).value_counts().index[0])
+    mode = lambda values: values.astype(str).value_counts().index[0]
+    destination = work_trips.groupby(["folio_vivienda", "folio_habitante"]).agg(destino_trabajo=("tipo_lugar_destino", mode), destino_cvegeo=("destino", mode), destino_zona=("zona_destino", mode))
 
-    return destination.rename("destino_trabajo").reset_index()
+    return destination.reset_index()
 
 def compute_od_household_roster(population):
     """Household roster aggregates comparable with ENOE's: employed members and children aged 6-11 (4.3)."""
@@ -161,6 +164,7 @@ def generate_od_dataframe(eod_path=None):
     assert not missing, f"Expected eodgdl columns are missing (schema changed?): {missing}"
     od = od[od["trabajo_semana_pasada"].isin(OD_EMPLOYED_CATEGORIES)].copy()
     od = od.rename(columns=OD_RENAMES)
+    od = add_destination_features(od)
     # eodgdl delivers pandas Categoricals; plain strings are simpler for mapping, sklearn and parquet.
     categorical_columns = od.columns[od.dtypes.eq("category")]
     od[categorical_columns] = od[categorical_columns].astype("string")

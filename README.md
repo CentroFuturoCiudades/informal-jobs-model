@@ -36,6 +36,7 @@ Both surveys are loaded through the project's data packages, which download and 
     - `trabajo_semana_pasada`: employment status last week (used to select workers)
     - `giro_empresa`: economic sector of the employer (missing for most workers)
     - `municipio_raw`, `ageb`, `centralidad`: dwelling geography (from `viv`)
+    - `destino_trabajo`, `destino_cvegeo`, `destino_zona`: type, INEGI code and zone of the most frequent work-trip destination (from the trips table); `destino_ambito` (urban AGEB / rural locality / airport / outside the metro zone / unknown) and the DENUE establishment mix at the destination (`dest_share_*`, `dest_share_grandes`, `dest_establecimientos_log`; DENUE release 2022-11 via `mxcensus`, codes resolved through `eodgdl.load_imeplan_agebs` and the Marco Geoestadístico) — used by the sector model only
     - `dwelling_size` (`personas_en_vivienda`): household size category
 
     Raw OD columns whose `eodgdl` names coincide with the harmonized attributes created in stage 2 (`ocupacion`, `escolaridad`, `municipio`, `estado_civil`, `parentesco`) carry a `_raw` suffix (`src.OD_RAW_COLUMN_RENAMES`); the unsuffixed name always refers to the harmonized attribute.
@@ -157,7 +158,7 @@ For informality prediction, the relevant harmonized worker attributes are primar
 - `sector`
 - `lugar_trabajo` (place of work: `establecimiento`, `comercio_o_puesto`, `otra_vivienda`, `otro_o_sin_local`; from the ENOE workplace questions and the OD work-trip destination)
 
-If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels).
+If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels, and the work-trip destination features `src.OD_DESTINATION_FEATURES`, built by `src.add_destination_features`).
 
 All categorical variables should use the same categories established during the harmonization stage.
 

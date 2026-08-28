@@ -15,8 +15,11 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
-OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
-OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"]
+# Work-trip destination features (review item 4.4): the destination type, its ámbito, and the DENUE establishment mix
+# at the destination AGEB/locality. They are OD-only, which is fine here (the sector model trains on OD).
+OD_DESTINATION_FEATURES = ["destino_trabajo", "destino_ambito", "dest_establecimientos_log", "dest_share_grandes", "dest_share_comercio", "dest_share_gobierno_otro_agricultura", "dest_share_manufactura_construccion", "dest_share_servicios_transporte"]
+OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES
+OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES
 
 # Diagnostics
 def compare_sector_known_unknown_profiles(od, columns):

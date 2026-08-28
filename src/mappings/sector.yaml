@@ -41,3 +41,28 @@ od_giro_empresa:     # OD `giro_empresa` ("Giro de la empresa donde trabaja")
   Educación: servicios_transporte
   Industria: manufactura_construccion
   Gobierno/sector público: gobierno_otro_agricultura
+
+denue_scian2:        # DENUE `codigo_act` first two digits (SCIAN sector) -> harmonized class; used for the destination mix (4.4)
+  11: gobierno_otro_agricultura  # Agricultura, cría y explotación de animales, aprovechamiento forestal, pesca y caza
+  21: manufactura_construccion   # Minería
+  22: manufactura_construccion   # Generación, transmisión y distribución de energía eléctrica, agua y gas
+  23: manufactura_construccion   # Construcción
+  31: manufactura_construccion   # Industrias manufactureras
+  32: manufactura_construccion   # Industrias manufactureras
+  33: manufactura_construccion   # Industrias manufactureras
+  43: comercio                   # Comercio al por mayor
+  46: comercio                   # Comercio al por menor
+  48: servicios_transporte       # Transportes, correos y almacenamiento
+  49: servicios_transporte       # Transportes, correos y almacenamiento
+  51: servicios_transporte       # Información en medios masivos
+  52: servicios_transporte       # Servicios financieros y de seguros
+  53: servicios_transporte       # Servicios inmobiliarios y de alquiler
+  54: servicios_transporte       # Servicios profesionales, científicos y técnicos
+  55: servicios_transporte       # Corporativos
+  56: servicios_transporte       # Servicios de apoyo a los negocios y manejo de residuos
+  61: servicios_transporte       # Servicios educativos
+  62: servicios_transporte       # Servicios de salud y de asistencia social
+  71: servicios_transporte       # Servicios de esparcimiento culturales y deportivos
+  72: servicios_transporte       # Servicios de alojamiento temporal y de preparación de alimentos
+  81: servicios_transporte       # Otros servicios excepto actividades gubernamentales
+  93: gobierno_otro_agricultura  # Actividades legislativas, gubernamentales y de justicia

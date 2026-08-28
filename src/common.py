@@ -7,7 +7,7 @@ SECTOR_CLASSES = ["comercio", "gobierno_otro_agricultura", "manufactura_construc
 AGE_LABELS = ["0_2", "3_4", "5", "6_7", "8_11", "12_14", "15_17", "18_24", "25_49", "50_59", "60_64", "65_y_mas"]
 # The nine municipalities of the Guadalajara Metropolitan Area as covered by the OD survey (eodgdl schema).
 AMG_MUNICIPALITIES = ["guadalajara", "zapopan", "tlaquepaque", "tlajomulco", "tonala", "el_salto", "juanacatlan", "ixtlahuacan_membrillos", "zapotlanejo"]
-NUMERIC_FEATURES = ["edad_num"]
+NUMERIC_FEATURES = ["edad_num", "dest_establecimientos_log", "dest_share_grandes", "dest_share_comercio", "dest_share_gobierno_otro_agricultura", "dest_share_manufactura_construccion", "dest_share_servicios_transporte"]
 # Harmonized attributes shared by both surveys (stage 2 output); the model feature lists are subsets of these.
 HARMONIZED_FEATURES = ["genero", "ocupacion", "edad_num", "edad_cat", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo", "hogar_trabajadores_cat", "hogar_ninos_cat"]
 # Household size is collapsed at 7+: the ENOE roster count and the OD self-report diverge 5x above 8 persons.
@@ -19,7 +19,7 @@ def _eodgdl_levels(column):
     """Category labels eodgdl guarantees for a raw OD column (its pandera schema)."""
     from eodgdl import schemas
 
-    schema = schemas.hab_schema if column in schemas.hab_schema.columns else schemas.viv_schema
+    schema = next(candidate for candidate in (schemas.hab_schema, schemas.viv_schema, schemas.trips_schema) if column in candidate.columns)
 
     return list(schema.columns[column].dtype.type.categories)
 
@@ -47,6 +47,8 @@ def build_category_levels():
         "ocupacion_raw": _eodgdl_levels("ocupacion"),
         "trabajo_semana_pasada": _eodgdl_levels("trabajo_semana_pasada"),
         "centralidad": _eodgdl_levels("centralidad"),
+        "destino_trabajo": _eodgdl_levels("tipo_lugar_destino"),
+        "destino_ambito": ["ageb_urbana", "localidad_rural", "aeropuerto", "fuera_zm", "desconocido"],
     }
 
     return {feature: values + [NO_ESPECIFICADO] for feature, values in levels.items()}

@@ -1,6 +1,6 @@
 # Review remediation plan
 
-Status: **Phases 0–3 done** (2026-08-27); Phase 4 (model improvements) in progress. Phase 3 verified by a full 01→05 re-run: every output parquet identical to the pre-Phase-3 run. Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*. Items are grouped into phases that should be executed in order, because early phases change the training data and invalidate any tuning done before them.
+Status: **Phases 0–4 done** (2026-08-27; 4.5 evaluated and rejected, 4.7 proposed). Headline after Phase 4: OD expected informality 35.26% (raked to the ENOE profile 38.39%; ENOE metro benchmark 39.35%). Source: full-pipeline review of 2026-08-27 (after the mxcensus/eodgdl migration, commit `849568a`). Each item records *what is wrong*, *why it matters*, *the fix*, and *how to verify*.
 
 Legend: **[D]** = a decision the user must make before implementation; **[R]** = requires re-running notebooks 04–05 (slow).
 
@@ -205,17 +205,27 @@ Each item is run as an experiment first — same metro held-out households, pair
 
 - **Done (2026-08-27):** `hogar_trabajadores_cat` (employed members, 1/2/3/4+) and `hogar_ninos_cat` (children aged 6–11, the OD roster's floor) from both rosters; distributions comparable (ENOE 23/37/22/17% vs OD 26/39/24/11%; 72/21/8% vs 77/18/5%). Paired-fold gain +0.0001 ± 0.0005 — none. Kept in the harmonized data, not used as features.
 
-### 4.4 DENUE at the work-trip destination (sector model only)
+### 4.4 DENUE at the work-trip destination (sector model only) ✅ done
 - **Why:** the sector model uses `centralidad` (71 dummies) as its only spatial signal. The OD records the destination AGEB of the work trip; `mxcensus.load_denue` gives every establishment with SCIAN code and location. The sector mix (and size mix) of establishments at the destination AGEB is a direct predictor of the worker's sector and is available for imputed workers too.
 - **Fix:** per destination AGEB: shares of establishments (and of employment-size classes) in the four harmonized sectors; join to workers by their most frequent work-trip destination; features `dest_share_<sector>`, `dest_establishments`. OD-only, so no ENOE counterpart needed.
 - **Verify:** paired-fold log loss of the sector model; calibration-in-the-large by class; effect on imputed sector composition and the informality headline.
 
-### 4.5 Household income bracket
+- **Done (2026-08-27):** `src/destination_features.py` — work-trip destination code resolved to INEGI `CVEGEO` through `eodgdl.load_imeplan_agebs().CVEGEO_EOD` (13-character codes are AGEBs; 9-character ones are IMEPLAN codes, resolved where the table has them; `999990001–6` are the six access corridors out of the metro zone and `99999000A` the airport, classified through `zona_destino`); DENUE Jalisco release 2022-11 (`mxcensus.load_denue`) aggregated at AGEB and locality level (sector shares via `denue_scian2` in `sector.yaml`, share of establishments with >10 employees, log count) with locality fallback; `destino_ambito` ∈ {ageb_urbana 21,070; localidad_rural 247; aeropuerto 301; fuera_zm 518; desconocido 4,777}. Prototype paired folds (known-sector rows): log loss 1.088 → 0.900 with the raw destination type, → 1.015 with DENUE only, → **0.873** with both (−0.216 ± 0.006). Shipped: held-out log loss A 1.076 → 0.839 [0.802, 0.872] (31% below marginal), accuracy 48.3% → 64.8%, macro-F1 0.386 → 0.592; calibration-in-the-large gaps ≤ 0.9 pp, ECE ≤ 0.025; imputed `gobierno_otro_agricultura` share 8.7% → 6.3% (delta factor 0.64). OD expected informality 36.28% → **35.26%** via the changed sector composition (within services 45.8%, gobierno/otro/agric. 12.1%, manufactura 19.2%, comercio 41.0%).
+
+### 4.5 Household income bracket ✅ evaluated — not shipped
 - **Why:** ENOE informality by income level: 75% (≤1 MW) → 43% → 29% → 16% (3–5 MW). OD has `ingreso_mensual_hogar` (10 brackets incl. "No sabe"/refused).
 - **Fix/risk:** ENOE labour income summed over the household roster and bracketed to the OD cut points (monthly pesos); ordinal with an explicit missing level. Comparability is imperfect (household total vs labour income; ~20–30% non-response in both). Ship only if the stage-3 distributions are close and the paired-fold gain is clear.
 
-### 4.6 Raking the OD to ENOE margins (reporting)
+- **Evaluated (2026-08-27), rejected:** OD `ingreso_mensual_hogar` is missing for 48% of workers (41% refused, 7% don't know) and, where answered, differs from ENOE's household labour income (share above $25k: OD 3.8% vs ENOE 15.3%; ENOE labour income is zero/unspecified for 34% of the employed). The informality gradient is real (ENOE 88% at $1.5–3k → 40% above $25k) but the measurement mismatch and the non-response would make it a shift hazard on the strongest-looking feature. Not added.
+
+### 4.6 Raking the OD to ENOE margins (reporting) ✅ done
 - **Fix:** rake the OD expansion factors to the ENOE metro margins on the shared covariates and report the informality rate under both weightings, as the mirror image of the 2.7 decomposition. No change to shipped outputs.
+
+- **Done (2026-08-27):** notebook 05 rakes the OD expansion factors to the ENOE metro profile (density-ratio weights on sex, occupation, age, education, municipality, marital status, household size, place of work; ESS 6,297 of 26,913). OD expected informality 35.26% as surveyed → **38.39%** raked, vs the ENOE metro benchmark 39.35%: once composition is equalized the model reproduces ENOE to within 1 pp, consistent with the 2.7 decomposition from the other side.
+
+### 4.7 Conditional marginalization for workers without a work trip (proposed)
+- **Why:** 3,290 OD workers (13.1% weighted) have no work trip on the survey day and therefore `lugar_trabajo = no_especificado`; they are marginalized over ENOE's *unconditional* place-of-work shares (mean P(informal) 0.41) whereas scoring them all as home/mobile workers gives 0.59 — a 35.3% vs 43.0% band on the headline, now the largest single uncertainty. ENOE observes the place of work for everyone.
+- **Fix:** fit an auxiliary model P(lugar_trabajo | x) on ENOE; marginalize each no-trip worker with its own conditional distribution (row-specific shares in `predict_proba_marginalizing`). Same for `destino_trabajo = no_especificado` in the sector model. Report the headline under unconditional vs conditional marginalization.
 
 ## Execution order and verification
 
