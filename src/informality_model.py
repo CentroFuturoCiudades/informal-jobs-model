@@ -13,7 +13,7 @@ from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .diagnose_enoe_od_dataframes import filter_common_geography
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, fit_level_model, predict_level_shares, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 INFORMALITY_FEATURES = ["genero", "ocupacion", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "sector", "lugar_trabajo"]
@@ -143,7 +143,7 @@ def prepare_enoe_informality_training_data(enoe, features=INFORMALITY_FEATURES):
     return X, y, sample_weights, groups, training_data
 
 # Models
-def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
+def build_informality_models(features=INFORMALITY_FEATURES, random_state=42, native_categoricals=True):
     numerical_features, categorical_features = split_feature_types(features)
     category_levels = build_category_levels()
     categories = [category_levels[column] for column in categorical_features]
@@ -159,6 +159,8 @@ def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
     prepare = FunctionTransformer(prepare_model_features, kw_args={"features": list(features)})
     linear_preprocessor = ColumnTransformer([("numerical", linear_numerical_preprocessor, numerical_features), ("categorical", linear_categorical_preprocessor, categorical_features)])
     tree_preprocessor = ColumnTransformer([("numerical", tree_numerical_preprocessor, numerical_features), ("categorical", tree_categorical_preprocessor, categorical_features)])
+    # Gradient boosting uses native categorical splits (ordinal-encoded with the declared categories) — follow-up C5.
+    boosting_preprocessor, boosting_categorical = make_tree_preprocessor(numerical_features, categorical_features, categories, native_categoricals=native_categoricals)
 
     models = {
         "LogisticRegression": {
@@ -176,7 +178,7 @@ def build_informality_models(features=INFORMALITY_FEATURES, random_state=42):
             }
         },
         "GradientBoosting": {
-            "model": Pipeline([("prepare", prepare), ("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
+            "model": Pipeline([("prepare", prepare), ("preprocessor", boosting_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state, categorical_features=boosting_categorical if native_categoricals else None))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
             "params": {
                 "classifier__max_iter": [50, 100, 200, 400],
                 "classifier__learning_rate": [0.05, 0.1],
@@ -645,3 +647,44 @@ def decompose_enoe_od_gap(model_with_education, model_without_education, enoe_be
     table.loc[4, "difference_pp"] = (od_expected - predicted_reweighted) * 100
 
     return table, diagnostics
+
+
+# Two components of informality (follow-up diagnostic): informal-sector units vs unprotected employment elsewhere
+INFORMALITY_COMPONENTS = ["informal_sector", "informal_unprotected"]
+
+def fit_informality_components(enoe, model_with_education, model_without_education, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES):
+    """Refit the selected specifications with each component of the informality label as the target.
+
+    ``informal_sector`` (informal-sector units, paid domestic work, subsistence agriculture) is what the shared
+    covariates — above all the place of work — can identify; ``informal_unprotected`` (informal employment inside other
+    units, i.e. no social security) is not observable in the OD. Returns {component: (model_with, model_without)}."""
+    models = {}
+    for component in INFORMALITY_COMPONENTS:
+        relabeled = enoe.assign(informal=enoe[component])
+        with_model, _ = refit_informality_model(model_with_education, relabeled, features=with_education_features)
+        without_model, _ = refit_informality_model(model_without_education, relabeled, features=without_education_features)
+        models[component] = (with_model, without_model)
+
+    return models
+
+def evaluate_informality_components(component_models, validation_data, with_education_features=INFORMALITY_FEATURES):
+    """Held-out AUC / log loss / observed rate per component (with-education models on the same rows)."""
+    rows = []
+    for component, (with_model, _) in component_models.items():
+        relabeled = validation_data.assign(informal=validation_data[component])
+        metrics, _, _ = evaluate_informality_model(with_model, relabeled, features=with_education_features)
+        rows.append(metrics.iloc[0][["observed_informality_rate", "predicted_informality_rate", "weighted_roc_auc", "weighted_log_loss", "ece"]].rename(component))
+
+    return pd.DataFrame(rows)
+
+def predict_od_informality_components(component_models, od, **predict_kwargs):
+    """Expected OD informality by component (each component's models go through the same marginalization as the
+    main model); returns a Series with the weighted expected rate of each component and their sum."""
+    weights = od["expansion_factor"].astype(float)
+    rates = {}
+    for component, (with_model, without_model) in component_models.items():
+        predicted = predict_od_informality(with_model, without_model, od, **predict_kwargs)
+        rates[component] = float((weights * predicted["prob_informal"]).sum() / weights.sum())
+    rates["sum_of_components"] = sum(rates.values())
+
+    return pd.Series(rates)

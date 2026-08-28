@@ -158,7 +158,7 @@ For informality prediction, the relevant harmonized worker attributes are primar
 - `sector`
 - `lugar_trabajo` (place of work: `establecimiento`, `comercio_o_puesto`, `otra_vivienda`, `otro_o_sin_local`; from the ENOE workplace questions and the OD work-trip destination)
 
-If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels, and the work-trip destination features `src.OD_DESTINATION_FEATURES`, built by `src.add_destination_features`).
+If the economic sector is unavailable, it must first be estimated using the sector model. Direct application of this model additionally requires the OD-specific predictors defined in `src.OD_SECTOR_FEATURES` and `src.OD_ROBUST_SECTOR_FEATURES` (`ocupacion_raw`, `trabajo_semana_pasada`, `centralidad`, using the `eodgdl` category labels, the work-trip destination features `src.OD_DESTINATION_FEATURES`, built by `src.add_destination_features`, and the mobility features `src.OD_MOBILITY_FEATURES`).
 
 All categorical variables should use the same categories established during the harmonization stage.
 

@@ -34,7 +34,7 @@ def assert_mapping_covers(values, mapping, allowed_unmapped=(), name=None):
 def prepare_enoe_data_types(enoe):
     """Stage 1 already delivers Int64 codes and float weights; only verify, so the cast lives in one place."""
     enoe = enoe.copy()
-    code_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_stratum", "survey_psu", "p4", "p4b", "p4e", "p4f", "p4h", "hogar_trabajadores", "hogar_ninos_6_11"]
+    code_columns = ["mun", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size", "survey_stratum", "survey_psu", "p4", "p4b", "p4e", "p4f", "p4h", "hogar_trabajadores", "hogar_ninos_6_11", "tue2", "seg_soc"]
     not_integer = [column for column in code_columns if not pd.api.types.is_integer_dtype(enoe[column])]
     assert not not_integer, f"ENOE code columns must be integer-typed (stage 1 casts them): {not_integer}"
     assert pd.api.types.is_float_dtype(enoe["survey_weight"]) and enoe["survey_weight"].notna().all(), "survey_weight must be float without missing values"
@@ -347,10 +347,18 @@ def harmonize_household_roster(frame):
 
     return frame
 
+INFORMAL_SECTOR_TUE2 = [5, 6, 7]  # tue2: 5 = sector informal, 6 = trabajo doméstico remunerado, 7 = agricultura de subsistencia
+
 def generate_enoe_informal_label(enoe):
+    """``informal`` (INEGI `emp_ppal`) and its two components: ``informal_sector`` (informal-sector units, paid domestic
+    work, subsistence agriculture — identifiable from the type of unit) and ``informal_unprotected`` (informal employment
+    inside other units, essentially lack of social security — not observable in the OD)."""
     enoe = enoe.copy()
     assert_mapping_covers(enoe["emp_ppal"], {1, 2})
     enoe["informal"] = enoe["emp_ppal"].map({1: 1, 2: 0}).astype("Int64")
+    in_informal_sector = enoe["tue2"].isin(INFORMAL_SECTOR_TUE2)
+    enoe["informal_sector"] = (enoe["informal"].eq(1) & in_informal_sector).astype("Int64")
+    enoe["informal_unprotected"] = (enoe["informal"].eq(1) & ~in_informal_sector).astype("Int64")
 
     return enoe
 

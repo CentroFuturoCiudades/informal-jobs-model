@@ -49,6 +49,9 @@ def build_category_levels():
         "centralidad": _eodgdl_levels("centralidad"),
         "destino_trabajo": _eodgdl_levels("tipo_lugar_destino"),
         "destino_ambito": ["ageb_urbana", "localidad_rural", "aeropuerto", "fuera_zm", "desconocido"],
+        "modo_trabajo": _eodgdl_levels("modo_principal"),
+        "weekend_dest_trabajar": ["Sí", "No"],
+        "n_autos_camionetas": _eodgdl_levels("n_autos_camionetas"),
     }
 
     return {feature: values + [NO_ESPECIFICADO] for feature, values in levels.items()}
@@ -505,3 +508,24 @@ def predict_level_shares(model, X):
     probabilities = model.predict_proba(X)
 
     return pd.DataFrame(probabilities, columns=list(model.named_steps["classifier"].classes_), index=X.index)
+
+
+# Native categorical handling for gradient boosting (follow-up C5)
+def make_tree_preprocessor(numerical_features, categorical_features, categories, native_categoricals=False):
+    """Preprocessor for tree models. One-hot (dense) by default; with ``native_categoricals`` the categorical columns
+    are ordinal-encoded with the declared categories so ``HistGradientBoostingClassifier`` can use its native
+    categorical splits (``categorical_features`` = the positions after the numerical block)."""
+    from sklearn.compose import ColumnTransformer
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
+
+    numerical = Pipeline([("imputer", SimpleImputer(strategy="median"))])
+    if native_categoricals:
+        categorical = OrdinalEncoder(categories=categories, handle_unknown="error")
+    else:
+        categorical = Pipeline([("imputer", SimpleImputer(strategy="constant", fill_value=NO_ESPECIFICADO)), ("encoder", OneHotEncoder(categories=categories, handle_unknown="error", sparse_output=False))])
+    preprocessor = ColumnTransformer([("numerical", numerical, numerical_features), ("categorical", categorical, categorical_features)])
+    categorical_positions = list(range(len(numerical_features), len(numerical_features) + len(categorical_features)))
+
+    return preprocessor, categorical_positions

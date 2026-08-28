@@ -27,7 +27,10 @@ ENOE_RENAMES = {"fac_tri": "survey_weight", "est_d_tri": "survey_stratum", "upm"
 # p4h = where a subordinate works. Roster aggregates (4.3) are computed over the residents of the household.
 ENOE_WORKPLACE_COLUMNS = ["p4", "p4b", "p4e", "p4f", "p4h"]
 ENOE_ROSTER_COLUMNS = ["hogar_trabajadores", "hogar_ninos_6_11"]
-ENOE_CODE_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "estrato_socioeconomico", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"] + ENOE_WORKPLACE_COLUMNS + ENOE_ROSTER_COLUMNS
+# tue2 (type of economic unit incl. informal sector / paid domestic work / subsistence agriculture) and seg_soc (access to
+# social security) split the informality label into its two components (follow-up diagnostic).
+ENOE_COMPONENT_COLUMNS = ["tue2", "seg_soc"]
+ENOE_CODE_COLUMNS = ENOE_PERSON_KEYS + ["mun", "survey_stratum", "survey_psu", "estrato_socioeconomico", "sex", "pos_ocu", "scian", "eda", "cs_p13_1", "emp_ppal", "e_con", "par_c", "dwelling_size"] + ENOE_WORKPLACE_COLUMNS + ENOE_ROSTER_COLUMNS + ENOE_COMPONENT_COLUMNS
 ENOE_WEIGHT_COLUMNS = ["survey_weight"]
 ENOE_OUTPUT_COLUMNS = ENOE_CODE_COLUMNS[:len(ENOE_PERSON_KEYS) + 3] + ENOE_WEIGHT_COLUMNS + ENOE_CODE_COLUMNS[len(ENOE_PERSON_KEYS) + 3:]
 # Cross-quarter identifiers: tipo/mes_cal distinguish the panel visits of the same dwelling, so grouping (CV folds,
@@ -43,7 +46,7 @@ ENOE_MIN_AGE, ENOE_MAX_AGE = 12, 98
 
 # OD
 OD_EMPLOYED_CATEGORIES = ["Tiempo completo", "Medio tiempo", "Tenía trabajo, pero no trabajó"]
-OD_DWELLING_COLUMNS = ["municipio", "ageb", "centralidad", "personas_en_vivienda"]
+OD_DWELLING_COLUMNS = ["municipio", "ageb", "centralidad", "personas_en_vivienda", "n_autos_camionetas"]
 OD_WORK_TRIP_PURPOSE = "Trabajar"
 # Raw eodgdl columns whose names collide with the harmonized columns created in stage 2.
 OD_RAW_COLUMN_RENAMES = {
@@ -139,7 +142,7 @@ def compute_od_work_trip_destination(trips):
     work_trips = trips.reset_index()
     work_trips = work_trips[work_trips["motivo_viaje"] == OD_WORK_TRIP_PURPOSE]
     mode = lambda values: values.astype(str).value_counts().index[0]
-    destination = work_trips.groupby(["folio_vivienda", "folio_habitante"]).agg(destino_trabajo=("tipo_lugar_destino", mode), destino_cvegeo=("destino", mode), destino_zona=("zona_destino", mode))
+    destination = work_trips.groupby(["folio_vivienda", "folio_habitante"]).agg(destino_trabajo=("tipo_lugar_destino", mode), destino_cvegeo=("destino", mode), destino_zona=("zona_destino", mode), modo_trabajo=("modo_principal", mode))
 
     return destination.reset_index()
 

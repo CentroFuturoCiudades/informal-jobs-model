@@ -12,14 +12,16 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, fit_level_model, predict_level_shares, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
+from .common import NO_ESPECIFICADO, SECTOR_CLASSES, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
 # Work-trip destination features (review item 4.4): the destination type, its ámbito, and the DENUE establishment mix
 # at the destination AGEB/locality. They are OD-only, which is fine here (the sector model trains on OD).
 OD_DESTINATION_FEATURES = ["destino_trabajo", "destino_ambito", "dest_establecimientos_log", "dest_share_grandes", "dest_share_comercio", "dest_share_gobierno_otro_agricultura", "dest_share_manufactura_construccion", "dest_share_servicios_transporte"]
-OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES
-OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES
+# Further OD-only features (follow-up A): mode of the work trip, weekend work destination, household vehicles.
+OD_MOBILITY_FEATURES = ["modo_trabajo", "weekend_dest_trabajar", "n_autos_camionetas"]
+OD_SECTOR_FEATURES = ["genero", "edad_num", "escolaridad", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES + OD_MOBILITY_FEATURES
+OD_ROBUST_SECTOR_FEATURES = ["genero", "edad_num", "municipio", "estado_civil", "parentesco", "tamano_viv_cat", "ocupacion_raw", "trabajo_semana_pasada", "centralidad"] + OD_DESTINATION_FEATURES + OD_MOBILITY_FEATURES
 
 # Diagnostics
 def compare_sector_known_unknown_profiles(od, columns):
@@ -103,7 +105,7 @@ def prepare_od_probabilistic_sector_training_data(od, sector_features=OD_SECTOR_
     return X, y, sample_weights, groups, training_data
 
 # Models
-def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random_state=42):
+def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random_state=42, native_categoricals=True):
     numerical_features, categorical_features = split_feature_types(sector_features)
     category_levels = build_category_levels()
     categories = [category_levels[column] for column in categorical_features]
@@ -119,6 +121,8 @@ def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random
     prepare = FunctionTransformer(prepare_model_features, kw_args={"features": list(sector_features)})
     linear_preprocessor = ColumnTransformer([("numerical", linear_numerical_preprocessor, numerical_features), ("categorical", linear_categorical_preprocessor, categorical_features)])
     tree_preprocessor = ColumnTransformer([("numerical", tree_numerical_preprocessor, numerical_features), ("categorical", tree_categorical_preprocessor, categorical_features)])
+    # Gradient boosting uses native categorical splits (ordinal-encoded with the declared categories) — follow-up C5.
+    boosting_preprocessor, boosting_categorical = make_tree_preprocessor(numerical_features, categorical_features, categories, native_categoricals=native_categoricals)
 
     models = {
         "LogisticRegression": {
@@ -136,7 +140,7 @@ def build_probabilistic_sector_models(sector_features=OD_SECTOR_FEATURES, random
             }
         },
         "GradientBoosting": {
-            "model": Pipeline([("prepare", prepare), ("preprocessor", tree_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
+            "model": Pipeline([("prepare", prepare), ("preprocessor", boosting_preprocessor), ("classifier", HistGradientBoostingClassifier(early_stopping=False, class_weight=None, random_state=random_state, categorical_features=boosting_categorical if native_categoricals else None))]),  # early stopping would use a row-level split that ignores households; max_iter is tuned in the grouped CV instead
             "params": {
                 "classifier__max_iter": [50, 100, 200, 400],
                 "classifier__learning_rate": [0.05, 0.1],
@@ -326,7 +330,7 @@ def fit_destination_models(od, with_education_features=OD_SECTOR_FEATURES, witho
     destination features), used to marginalize workers without a work trip with their own distribution (4.7)."""
     models = {}
     for key, features in (("with_education", with_education_features), ("without_education", without_education_features)):
-        predictors = [column for column in features if column not in OD_DESTINATION_FEATURES]
+        predictors = [column for column in features if column not in OD_DESTINATION_FEATURES and column != "modo_trabajo"]
         models[key] = fit_level_model(od, "destino_trabajo", predictors, sample_weights=od["expansion_factor"], random_state=random_state)
 
     return models
