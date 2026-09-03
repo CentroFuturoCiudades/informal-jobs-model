@@ -11,3 +11,10 @@ __pycache__/
 # Pre-migration reference outputs (local only)
 outputs_baseline/
 outputs_ref_*/
+
+# Raw datasets
+data/enoe/
+data/conjunto_de_datos_enigh_ns_2022_csv/
+
+# Trained model binaries
+outputs/models/*.joblib
