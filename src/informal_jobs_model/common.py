@@ -145,6 +145,8 @@ def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares
 
     ``level_subsets`` (feature -> list of levels) restricts the levels a feature is averaged over (shares are
     renormalized within the subset), e.g. an unsampled metro municipality averaged over the sampled metro ones only.
+    It only changes what unsupported rows are averaged over; a row whose observed level has training support is
+    scored as is even when that level lies outside the subset.
     ``conditional_shares`` (feature -> DataFrame, one row per row of ``X`` in order, one column per level) replaces
     the global training shares with **row-specific** probabilities P(level | x) from an auxiliary model (review item
     4.7): a worker whose place of work is unobserved is averaged over the places of work that workers like them have.
@@ -155,13 +157,14 @@ def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares
     shares = getattr(model, "training_level_shares_", None)
     if not shares:
         raise ValueError("The model has no training_level_shares_; refit it with attach_training_level_shares.")
-    if level_subsets:
-        shares = dict(shares)
-        for feature, levels in level_subsets.items():
-            subset = shares[feature].reindex(levels).dropna()
-            if subset.sum() <= 0:
-                raise ValueError(f"No training support for the requested {feature} levels {list(levels)}")
-            shares[feature] = pd.Series(0.0, index=shares[feature].index).add(subset / subset.sum(), fill_value=0.0)
+    # ``shares`` decides which observed levels are supported; ``averaging_shares`` decides what unsupported rows are
+    # averaged over (the training shares, or the renormalized subset when one is requested for the feature).
+    averaging_shares = dict(shares)
+    for feature, levels in (level_subsets or {}).items():
+        subset = shares[feature].reindex(levels).dropna()
+        if subset.sum() <= 0:
+            raise ValueError(f"No training support for the requested {feature} levels {list(levels)}")
+        averaging_shares[feature] = pd.Series(0.0, index=shares[feature].index).add(subset / subset.sum(), fill_value=0.0)
     X = X.reset_index(drop=True)
     conditional = {feature: table.reset_index(drop=True) for feature, table in (conditional_shares or {}).items()}
     for feature, table in conditional.items():
@@ -181,8 +184,9 @@ def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares
         # The missing label is never a "supported" level: a few training rows with no_especificado must not turn an
         # unobserved value into a category of its own (it would be routed like the residual training level).
         supported = shares[feature][(shares[feature] > 0) & (shares[feature].index != NO_ESPECIFICADO)]
-        supported = supported / supported.sum()
         unsupported = ~rows[feature].astype(str).isin(supported.index)
+        averaging = averaging_shares[feature][(averaging_shares[feature] > 0) & (averaging_shares[feature].index != NO_ESPECIFICADO)]
+        averaging = averaging / averaging.sum()
         fill(rows[~unsupported], weights[~unsupported.to_numpy()], rest)
         if unsupported.any():
             for row in rows.index[unsupported]:
@@ -190,12 +194,12 @@ def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares
                     marginalized_features[row].append(feature)
             if feature in conditional:
                 table = conditional[feature].loc[rows.index[unsupported]]
-                row_shares = table.reindex(columns=supported.index, fill_value=0.0).to_numpy(dtype=float)
+                row_shares = table.reindex(columns=averaging.index, fill_value=0.0).to_numpy(dtype=float)
                 row_shares = row_shares / np.where(row_shares.sum(axis=1, keepdims=True) > 0, row_shares.sum(axis=1, keepdims=True), 1.0)
-                for column_index, level in enumerate(supported.index):
+                for column_index, level in enumerate(averaging.index):
                     fill(rows[unsupported].assign(**{feature: level}), weights[unsupported.to_numpy()] * row_shares[:, column_index], rest)
             else:
-                for level, share in supported.items():
+                for level, share in averaging.items():
                     fill(rows[unsupported].assign(**{feature: level}), weights[unsupported.to_numpy()] * share, rest)
 
     fill(X, np.ones(len(X)), features)
@@ -488,12 +492,24 @@ def fit_level_model(frame, target, features, sample_weights=None, random_state=4
         ("classifier", HistGradientBoostingClassifier(max_iter=100, learning_rate=0.05, max_leaf_nodes=15, l2_regularization=1.0, early_stopping=False, random_state=random_state)),
     ])
     model.fit(data, data[target].astype(str), classifier__sample_weight=None if weights is None else weights.to_numpy())
+    # The auxiliary model one-hot encodes its predictors, so it needs the same marginalization of unsupported levels
+    # (an unsampled municipality, the missing label) as the main model; see predict_level_shares.
+    attach_training_level_shares(model, prepare_model_features(data, features), np.ones(len(data)) if weights is None else weights.to_numpy())
 
     return model
 
-def predict_level_shares(model, X):
-    """Row-wise P(level | x) as a DataFrame (columns = the model's classes) for ``predict_proba_marginalizing``."""
-    probabilities = model.predict_proba(X)
+def predict_level_shares(model, X, level_subsets=None):
+    """Row-wise P(level | x) as a DataFrame (columns = the model's classes) for ``predict_proba_marginalizing``.
+
+    Rows with a predictor level without training support are marginalized the same way the main model does
+    (``predict_proba_marginalizing``, honouring ``level_subsets``); bundles fitted before the auxiliary models carried
+    ``training_level_shares_`` fall back to ``predict_proba``."""
+    shares = getattr(model, "training_level_shares_", None)
+    if shares:
+        subsets = {feature: levels for feature, levels in (level_subsets or {}).items() if feature in shares}  # e.g. not the target itself
+        probabilities, _ = predict_proba_marginalizing(model, X, level_subsets=subsets)
+    else:
+        probabilities = model.predict_proba(X)
 
     return pd.DataFrame(probabilities, columns=list(model.named_steps["classifier"].classes_), index=X.index)
 

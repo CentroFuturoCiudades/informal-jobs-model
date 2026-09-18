@@ -1,6 +1,6 @@
 """Compare pipeline outputs against a reference run (e.g. ``outputs_baseline/``).
 
-Usage: ``uv run python -m src outputs_baseline outputs [--stage 1|2|models|all]`` (``models`` = the outputs of
+Usage: ``uv run python -m informal_jobs_model outputs_baseline outputs [--stage 1|2|models|all]`` (``models`` = the outputs of
 notebooks 04-05). Every function tolerates missing files so partial re-runs can be compared.
 """
 import argparse

@@ -352,6 +352,18 @@ def evaluate_informality_model(model, validation_data, features=INFORMALITY_FEAT
 
     return metrics, confusion, calibration_table
 
+def calculate_hybrid_calibration_table(model_with_education, model_without_education, validation_data, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, n_calibration_bins=10):
+    """Reliability table of the hybrid dispatch on held-out ENOE workers: each row is scored by the specification the
+    OD scoring would use for it (without education when ``escolaridad`` is missing), then binned as in
+    ``evaluate_informality_model``."""
+    missing_education = identify_missing_category(validation_data["escolaridad"])
+    informal_probability = pd.Series(np.nan, index=validation_data.index, dtype=float)
+    for use_mask, model, features in ((~missing_education, model_with_education, with_education_features), (missing_education, model_without_education, without_education_features)):
+        if use_mask.any():
+            informal_probability[use_mask], _ = predict_informal_probability(model, prepare_informality_features(validation_data.loc[use_mask], features))
+
+    return calculate_calibration_table(validation_data["informal"].astype(int), informal_probability, validation_data["survey_weight"].astype(float), n_bins=n_calibration_bins)
+
 
 
 # Final ENOE models
@@ -478,7 +490,7 @@ def predict_od_informality(model_with_education, model_without_education, od, wi
             conditional_shares = None
             if workplace_models is not None and "lugar_trabajo" in features:
                 predictors = [column for column in features if column != "lugar_trabajo"]
-                conditional_shares = {"lugar_trabajo": predict_level_shares(workplace_models[key], X_arm[predictors])}
+                conditional_shares = {"lugar_trabajo": predict_level_shares(workplace_models[key], X_arm[predictors], level_subsets=level_subsets)}
             probability_arm, _ = predict_informal_probability(model, X_arm, marginalize_unsupported=True, level_subsets=level_subsets, conditional_shares=conditional_shares)
             conditional_probability[np.flatnonzero(use_mask.to_numpy())] = probability_arm
 
