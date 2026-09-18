@@ -22,8 +22,13 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[tool.uv]
+# eodgdl's giro-model branch still pins mxcensus v0.2.0; notebook 07 needs the ENIGH loaders added in v0.4.0
+# (its ENOE loaders are unchanged when called with labels=False, which stage 1 does).
+override-dependencies = ["mxcensus @ git+https://github.com/CentroFuturoCiudades/mxcensus.git@v0.4.0"]
+
 [tool.uv.sources]
-mxcensus = { git = "https://github.com/CentroFuturoCiudades/mxcensus.git", rev = "v0.2.0" }
+mxcensus = { git = "https://github.com/CentroFuturoCiudades/mxcensus.git", rev = "v0.4.0" }
 eodgdl = { git = "https://github.com/CentroFuturoCiudades/eodgdl.git", branch = "giro-model" }
 
 [project.scripts]

@@ -77,7 +77,7 @@ def load_enoe_employed_persons(period, state_code=ENOE_STATE_CODE):
     population (``clase2 == 1``) on the analytical universe ``r_def == 0``, ``c_res in {1, 3}`` and ``eda`` in
     [ENOE_MIN_AGE, ENOE_MAX_AGE] (see ``src/config/enoe.yaml``)."""
     persons = mxcensus.load_enoe_persons(
-        period=period, ent=state_code, canonical_filter=False
+        period=period, ent=state_code, canonical_filter=False, labels=False  # raw INEGI codes; the stage-2 mappings key on them
     )
     assert_enoe_dwelling_key(persons, period)
     age = pd.to_numeric(persons["eda"], errors="coerce")
