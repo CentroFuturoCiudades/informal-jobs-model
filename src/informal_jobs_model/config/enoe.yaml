@@ -2,7 +2,7 @@
 # Loaded by generate_enoe_od_dataframes.py via load_config("enoe");
 # the module derives the composite key/column lists from these entries.
 
-# quarters pooled for training (review item 4.1);
+# quarters pooled for training;
 # survey weights are divided by their number
 periods:
   - 2022t1
@@ -67,7 +67,7 @@ columns:
       par_c,
       dwelling_size,
     ]
-  # Workplace items (COE1 section IV, review item 4.2): 
+  # Workplace items (COE1 section IV):
   # - p4 = type of unit (named business / unnamed / domestic-subordinate / abroad),
   # - p4b = interviewer classification (agriculture / educational-health institution /
   #                                      public or non-profit / private business),

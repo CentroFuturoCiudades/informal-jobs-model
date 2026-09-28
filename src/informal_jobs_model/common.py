@@ -116,7 +116,7 @@ def normalize_predicted_probabilities(probabilities, tolerance=1e-8):
     return probabilities / probability_sums
 
 
-# Marginalization over categorical levels without training support (review item 1.12)
+# Marginalization over categorical levels without training support
 def compute_training_level_shares(X, sample_weights):
     """Weighted share of each level of every categorical feature in the training data."""
     _, categorical_features = split_feature_types(list(X.columns))
@@ -148,8 +148,8 @@ def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares
     It only changes what unsupported rows are averaged over; a row whose observed level has training support is
     scored as is even when that level lies outside the subset.
     ``conditional_shares`` (feature -> DataFrame, one row per row of ``X`` in order, one column per level) replaces
-    the global training shares with **row-specific** probabilities P(level | x) from an auxiliary model (review item
-    4.7): a worker whose place of work is unobserved is averaged over the places of work that workers like them have.
+    the global training shares with **row-specific** probabilities P(level | x) from an auxiliary model:
+    a worker whose place of work is unobserved is averaged over the places of work that workers like them have.
 
     Returns ``(probabilities, marginalized_features)`` where the second element is a per-row string listing the
     features that were marginalized ("" if none).
@@ -208,7 +208,7 @@ def predict_proba_marginalizing(model, X, level_subsets=None, conditional_shares
     return normalize_predicted_probabilities(result), marginalized
 
 
-# Model selection with a one-standard-error rule on paired folds (review item 2.2)
+# Model selection with a one-standard-error rule on paired folds
 FAMILY_COMPLEXITY = {"LogisticRegression": 0, "RandomForest": 1, "GradientBoosting": 2}
 # +1: larger value = more complex; -1: larger value = simpler (more regularization)
 PARAMETER_COMPLEXITY_DIRECTION = {
@@ -254,7 +254,7 @@ def select_one_se(results):
     return table
 
 
-# Calibration (review item 2.3)
+# Calibration
 def calculate_calibration_table(y_true, probabilities, sample_weights, n_bins=10):
     """Weighted reliability table: observed rate vs mean predicted probability per probability bin."""
     calibration = pd.DataFrame({
@@ -361,7 +361,7 @@ def fit_isotonic_calibrator(model, X, y, sample_weights, groups, cv_splits=5, ra
     return IsotonicCalibratedPipeline(model, calibrator, positive_class=positive_class)
 
 
-# Density-ratio reweighting of one population to another's covariate profile (review items 2.4 / 2.5)
+# Density-ratio reweighting of one population to another's covariate profile
 def reweight_to_target_profile(source_rows, target_rows, features, source_weight_column, target_weight_column, random_state=42):
     """Reweight ``source_rows`` so their covariate distribution matches ``target_rows``.
 
@@ -406,7 +406,7 @@ def reweight_to_target_profile(source_rows, target_rows, features, source_weight
     return reweighted, diagnostics
 
 
-# Baselines, per-fold tables and uncertainty (review item 2.6)
+# Baselines, per-fold tables and uncertainty
 def marginal_log_loss(y_true, sample_weights, classes=None):
     """Weighted log loss of the constant predictor that outputs the weighted class shares (the honest reference
     for a probabilistic classifier; log(K) is the uniform predictor, which nobody would use)."""
@@ -466,7 +466,7 @@ def cross_validate_grouped(model, X, y, sample_weights, groups, cv_splits=5, ran
     return pd.Series(losses, index=[f"fold_{k}" for k in range(len(losses))])
 
 
-# Auxiliary model for an unobserved categorical feature (review item 4.7)
+# Auxiliary model for an unobserved categorical feature
 def fit_level_model(frame, target, features, sample_weights=None, random_state=42):
     """Fit P(target level | features) with a boosted-tree pipeline (same preprocessing contract as the main models);
     rows whose target is the missing label are excluded. Returns the fitted pipeline."""

@@ -459,7 +459,7 @@ def attach_sector_probabilities(od, od_giro):
     return od
 
 
-# PLACE OF WORK (review item 4.2)
+# PLACE OF WORK
 def harmonize_enoe_workplace(enoe):
     """``lugar_trabajo`` from COE1 section IV. Levels shared with the OD's work-trip destination type:
     establecimiento (premises of a non-commercial unit), comercio_o_puesto (premises in the commerce sector, or a

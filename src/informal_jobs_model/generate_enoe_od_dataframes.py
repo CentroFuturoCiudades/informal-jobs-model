@@ -139,7 +139,7 @@ def _generate_enoe_quarter(period, state_code):
 # OD
 def compute_od_work_trip_destination(trips):
     """Most frequent destination type of each person's work trips (``tipo_lugar_destino`` of trips with purpose
-    "Trabajar"); persons without a work trip on the survey day are absent (review item 4.2)."""
+    "Trabajar"); persons without a work trip on the survey day are absent."""
     work_trips = trips.reset_index()
     work_trips = work_trips[work_trips["motivo_viaje"] == OD_WORK_TRIP_PURPOSE]
     mode = lambda values: values.astype(str).value_counts().index[0]

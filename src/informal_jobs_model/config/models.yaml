@@ -9,7 +9,7 @@ numeric_features: [edad_num]
 
 informality:                 # stage 5: ENOE-trained informality model
   features: [genero, ocupacion, edad_num, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector, lugar_trabajo]
-  # Masked evaluation of the without-education model on the OD non-respondent profile (review item 2.4).
+  # Masked evaluation of the without-education model on the OD non-respondent profile.
   od_profile: [genero, ocupacion, edad_num, municipio, estado_civil, parentesco, tamano_viv_cat]
   gap_decomposition: [genero, ocupacion, edad_num, escolaridad, municipio, estado_civil, parentesco, tamano_viv_cat, sector]
   # Two components of informality (follow-up diagnostic): informal-sector units vs unprotected employment elsewhere.

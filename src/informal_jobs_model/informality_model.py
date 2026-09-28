@@ -50,7 +50,7 @@ def select_common_informality_population(enoe, od):
     """Training and benchmark populations for the informality model.
 
     Training uses **all** ENOE workers in the state with a valid label: municipalities outside the metro area enter
-    as ``municipio = "otro"`` and the model separates the two regimes through that feature (review item 1.13; on the
+    as ``municipio = "otro"`` and the model separates the two regimes through that feature (on the
     metro held-out fold this lowers log loss slightly and leaves the OD estimate unchanged). The benchmark the OD
     estimate is compared with is restricted to the metro municipalities sampled by both surveys (same rule as stage
     3). OD workers in metro municipalities ENOE did not sample are scored by averaging over the sampled metro
@@ -294,7 +294,7 @@ def get_best_informality_model(model_summary, best_models):
 
 
 # Calibration
-# Masked evaluation of the without-education model on the OD non-respondent profile (review item 2.4)
+# Masked evaluation of the without-education model on the OD non-respondent profile
 
 def reweight_to_od_profile(enoe_rows, od_target_rows, features=OD_PROFILE_FEATURES, weight_column="survey_weight", random_state=42):
     """ENOE rows reweighted to the covariate profile of a target OD sub-population (see ``common.reweight_to_target_profile``)."""
@@ -419,7 +419,7 @@ def validate_od_sector_probabilities(od, tolerance=1e-8):
 # Apply informality models to OD
 def fit_workplace_models(enoe, with_education_features=INFORMALITY_FEATURES, without_education_features=INFORMALITY_ROBUST_FEATURES, random_state=42):
     """Auxiliary models P(lugar_trabajo | x) on ENOE (one per specification, without the workplace itself), used to
-    marginalize OD workers whose place of work is unobserved with their own conditional distribution (4.7)."""
+    marginalize OD workers whose place of work is unobserved with their own conditional distribution."""
     models = {}
     for key, features in (("with_education", with_education_features), ("without_education", without_education_features)):
         predictors = [column for column in features if column != "lugar_trabajo"]
@@ -602,7 +602,7 @@ def informality_test_metrics_with_uncertainty(model, test_data, features=INFORMA
     return summary
 
 
-# Sampled informality status and decomposition of the ENOE -> OD gap (review item 2.7)
+# Sampled informality status and decomposition of the ENOE -> OD gap
 def sample_informality(od, probability_column="prob_informal", random_state=42):
     """One Bernoulli draw per worker, I ~ Bernoulli(prob_informal): a discrete status that is unbiased for every
     weighted aggregate (unlike the 0.5 threshold, which shrinks toward the majority class and, for workers whose
