@@ -23,7 +23,7 @@ from .common import (
     load_config,
 )
 
-_HARMONIZATION = load_config("harmonization")  # see src/config/harmonization.yaml
+_HARMONIZATION = load_config("harmonization")  # see config/harmonization.yaml
 AGE_BINS = list(_HARMONIZATION["age"]["bins"]) + [np.inf]  # left-closed; last bin open
 ENOE_AGE_UNSPECIFIED = _HARMONIZATION["age"]["enoe_unspecified"]
 HOUSEHOLD_SIZE_BINS = list(_HARMONIZATION["household_size"]["bins"]) + [np.inf]
@@ -137,8 +137,9 @@ def harmonize_od_occupation(od):
         "Profesor": "trabajador",
         "Patrón o empresario": "trabajador",
         "Trabajador independiente": "independiente",
-        # Respondents who report working last week but give a non-working status: they do work (see
-        # docs/review_remediation_plan.md 1.3) but their position in the occupation is unknown.
+        # Respondents who report working last week but give a non-working status: kept as workers (their ENOE
+        # analogues are mostly informal, so dropping them would drop a real informal segment) but their position
+        # in the occupation is unknown.
         "Hogar": NO_ESPECIFICADO,
         "Estudiante": NO_ESPECIFICADO,
         "Jubilado o pensionado": NO_ESPECIFICADO,
@@ -422,7 +423,7 @@ def harmonize_od_sector(od):
 
 
 def attach_sector_probabilities(od, od_giro):
-    """Collapse the OD giro model's output (``od_sector``: ``prob_giro_<slug>`` and the ``giro_*`` bookkeeping
+    """Collapse the OD giro model's output (``eodgdl.giro``: ``prob_giro_<slug>`` and the ``giro_*`` bookkeeping
     columns, keyed by ``folio_vivienda``/``folio_habitante``) to the harmonized sector classes.
 
     The giro -> sector map (``sector.yaml`` ``od_giro``) is many-to-one, so ``prob_sector_<class>`` is the sum of the

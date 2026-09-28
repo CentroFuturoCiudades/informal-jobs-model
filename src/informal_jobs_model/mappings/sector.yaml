@@ -42,7 +42,7 @@ od_giro_empresa:     # OD `giro_empresa` ("Giro de la empresa donde trabaja")
   Industria: manufactura_construccion
   Gobierno/sector público: gobierno_otro_agricultura
 
-od_giro:             # slugs of the OD giro model (od_sector, prob_giro_<slug>) -> harmonized class; used to collapse its probabilities
+od_giro:             # slugs of the OD giro model (eodgdl.giro, prob_giro_<slug>) -> harmonized class; used to collapse its probabilities
   comercio: comercio
   servicio: servicios_transporte
   educacion: servicios_transporte

@@ -45,7 +45,7 @@ This survey does not directly identify informal employment status; therefore, th
 
 The unit of analysis is the employed individuals or workers who appear in both data sources. The linkage is performed using available common variables, such as sex, age, educational level, municipality, employment status, and characteristics of employment or mobility.
 
-**Data access.** Dependencies are pinned to package releases (`mxcensus` v0.2.0, `eodgdl` v0.1.0) in `pyproject.toml`. The packages cache their downloads under `~/Library/Caches/mxcensus` and `~/Library/Caches/eodgdl` (override with `MXCENSUS_CACHE_DIR`, `EODGDL_CACHE_DIR`).
+**Data access.** Both packages are git dependencies pinned in `pyproject.toml` (`mxcensus` v0.4.0; `eodgdl` on its `giro-model` branch until the giro model is released). The packages cache their downloads under `~/Library/Caches/mxcensus` and `~/Library/Caches/eodgdl` (override with `MXCENSUS_CACHE_DIR`, `EODGDL_CACHE_DIR`).
 
 ## 2. Methodology
 
@@ -87,6 +87,11 @@ The final output is probabilistic. For each worker, the model estimates the prob
 **Notebook**: `05_informality_model.ipynb`
 **Module:** `informality_model.py`
 
+### 2.6 Household socioeconomic level (AMAI NSE)
+Independently of the informality stages, three notebooks assign each OD dwelling a socioeconomic level following the AMAI classification. Notebook 06 identifies the head of each household in the OD roster, imputes their education where it is missing and adds the AMAI scores observed directly in the OD (head's education, Internet access, cars). Notebook 07 imputes the three components the OD does not record (working household members aged 14 or older, complete bathrooms, bedrooms) from ENIGH 2022, loaded through `mxcensus`. Notebook 08 combines the six components into the AMAI score and rank-calibrates the household levels to AMAI's published NSE distribution by AGEB (`data/NSE_por_AGEB_AMAI.xlsx`), mapped on the AGEB shapefile in `data/GUADALAJARA_SHP`. The code for these three stages still lives in the notebooks.
+
+**Notebooks**: `06_head_household_education_level.ipynb`, `07_socioeconomic_level_model.ipynb`, `08_spatial_calibration.ipynb`
+
 ## 3. Results and Outputs
 
 All generated results are stored in the `outputs/` directory. The pipeline produces harmonized datasets, probabilistically imputed OD datasets, serialized Machine Learning models, and diagnostic figures used to evaluate the different stages of the methodology.
@@ -101,12 +106,15 @@ All generated results are stored in the `outputs/` directory. The pipeline produ
 | `outputs/od_harmonized.parquet` | OD worker dataset after harmonizing the attributes shared with ENOE. |
 | `outputs/od_giro_imputed.parquet` | Output of the OD giro model: keys, `giro_*` bookkeeping columns and `prob_giro_<giro>` for the five native giro levels. |
 | `outputs/od_sector_imputed.parquet` | `od_harmonized` joined with the giro output collapsed to the four harmonized sector classes (`prob_sector_*`, `sector_final`); the input of the informality stage. |
+| `outputs/od_sector_imputed_sensitivity.parquet` | The same frame under the two giro sensitivity scenarios (`scenario` = `shift_weighted`, `delta_adjusted`). |
 | `outputs/od_informality_imputed.parquet` | Final OD dataset containing the estimated probability of informal employment for each worker. Sector uncertainty is propagated into the final informality probability through probabilistic marginalization. |
 
 The two principal outputs of the Machine Learning pipeline are therefore:
 
 - **`od_sector_imputed.parquet`**, which reconstructs the missing economic-sector information in the OD survey.
 - **`od_informality_imputed.parquet`**, which provides the final probability of informal employment for every OD worker.
+
+Notebook 05 also writes the held-out reliability tables of the informality model (`outputs/calibration_{with_education,without_education,hybrid}.parquet`), which `informal_job_plots.ipynb` reads. The socioeconomic-level notebooks write CSV files to `outputs/files/`: `od_population.csv`, `head_household_education_level_data.csv` and `housing_data.csv` (06), `od_housing_amai_imputed.csv` (07), and `od_housing_with_economic_level.csv` and `nse_ageb_jalisco.csv` (08); the final household socioeconomic level is in `od_housing_with_economic_level.csv`.
 
 ### 3.2 Trained models
 
@@ -115,6 +123,8 @@ The final fitted models are stored in `outputs/models/`:
 | Output | Description |
 |---|---|
 | `informality_hybrid_model.joblib` | Final hybrid informality model trained on ENOE and used to estimate informality probabilities in OD. |
+| `head_household_education_model.joblib` | Head-of-household education imputation model (notebook 06). |
+| `amai_imputation_models.joblib` | ENIGH-trained models for the AMAI components missing from the OD (notebook 07). |
 
 These files allow the final models to be loaded and applied without repeating the complete tuning and training procedure.
 
@@ -127,11 +137,13 @@ The main figures include:
 - `weighted_distribution_comparison`: comparison of weighted predictor distributions between ENOE and OD.
 - `informality_profiles`: weighted ENOE informality profiles across the harmonized predictors.
 - `sector_known_unknown_profiles`: comparison between OD workers with known and unknown economic sector.
-- `sector_comparison`: comparison of observed and modeled sector distributions.
-- `sector_imputation_distributions`: hard and probabilistic sector-imputation diagnostics.
-- `sector_initial_final_distribution`: OD economic-sector distribution before and after probabilistic imputation.
-- `sector_final_distributions_confidence`: final sector distributions and model-prediction confidence.
+- `sector_comparison`: comparison of the known-sector distributions in ENOE and OD.
+- `informality_calibration`: reliability diagrams of the informality models on held-out ENOE data.
 - `informality_model_enoe_od_comparison`: final comparison between ENOE and OD informality estimates, including overall formal/informal distributions, probability calibration, and the distribution of informal employment across economic sectors.
+- `sector_original_vs_modelo`, `informality_model_enoe_od_comparison_presentation`: presentation versions drawn by `informal_job_plots.ipynb`.
+- `education_imputation_model_results` (notebook 06) and `nse_spatial_calibration_results` (notebook 08): diagnostics of the socioeconomic-level stages.
+
+The giro model's own diagnostics (known vs. unknown profiles, imputed distributions, confidence) are produced in eodgdl's `notebooks/giro_model.ipynb`.
 
 ## 4. Usage
 

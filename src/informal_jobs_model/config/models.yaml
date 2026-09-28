@@ -1,4 +1,4 @@
-# Feature lists of the informality stages (3 and 5); the OD giro model has its own config in od_sector/config.yaml. Loaded via src.load_config("models"). The "robust" (without
+# Feature lists of the informality stages (3 and 5); the OD giro model is configured in eodgdl.giro. Loaded via load_config("models"). The "robust" (without
 # education) specifications are derived in code by dropping `escolaridad` from the corresponding list.
 
 # Harmonized attributes shared by both surveys (stage 2 output); every feature list below is a subset of these.

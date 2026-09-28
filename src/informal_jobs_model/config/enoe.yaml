@@ -1,5 +1,5 @@
 # Stage 1 configuration for the ENOE side (mxcensus).
-# Loaded by src/generate_enoe_od_dataframes.py via src.load_config("enoe");
+# Loaded by generate_enoe_od_dataframes.py via load_config("enoe");
 # the module derives the composite key/column lists from these entries.
 
 # quarters pooled for training (review item 4.1);

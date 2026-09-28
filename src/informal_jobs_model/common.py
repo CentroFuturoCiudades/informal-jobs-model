@@ -11,13 +11,13 @@ CONFIG_DIR = Path(__file__).parent / "config"
 
 @functools.cache
 def load_config(name):
-    """Load a pipeline configuration file (``src/config/<name>.yaml``) as a dict."""
+    """Load a pipeline configuration file (``config/<name>.yaml`` in this package) as a dict."""
     with open(CONFIG_DIR / f"{name}.yaml", encoding="utf-8") as handle:
         return yaml.safe_load(handle)
 
 
-_HARMONIZATION = load_config("harmonization")  # see src/config/harmonization.yaml
-_MODELS = load_config("models")  # see src/config/models.yaml
+_HARMONIZATION = load_config("harmonization")  # see config/harmonization.yaml
+_MODELS = load_config("models")  # see config/models.yaml
 NO_ESPECIFICADO = _HARMONIZATION["missing_label"]
 SECTOR_CLASSES = list(_HARMONIZATION["sector_classes"])
 AMG_MUNICIPALITIES = list(_HARMONIZATION["amg_municipalities"])

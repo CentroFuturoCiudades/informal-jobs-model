@@ -2,8 +2,8 @@
 
 ENOE comes from ``mxcensus`` (national labour survey, one quarter per call) and the Guadalajara Origin-Destination
 survey from ``eodgdl``. Both packages download and cache the raw tables on first use (see README, "Data access").
-All source-specific constants (periods, keys, column lists, renames) live in ``src/config/enoe.yaml`` and
-``src/config/od.yaml``; this module derives the composite lists from them.
+All source-specific constants (periods, keys, column lists, renames) live in ``config/enoe.yaml`` and
+``config/od.yaml``; this module derives the composite lists from them.
 """
 
 import eodgdl
@@ -75,7 +75,7 @@ def compute_enoe_dwelling_size(period, state_code=ENOE_STATE_CODE):
 def load_enoe_employed_persons(period, state_code=ENOE_STATE_CODE):
     """Employed persons from ``mxcensus.load_enoe_persons`` (SDEM joined with COE1/COE2): INEGI's employed
     population (``clase2 == 1``) on the analytical universe ``r_def == 0``, ``c_res in {1, 3}`` and ``eda`` in
-    [ENOE_MIN_AGE, ENOE_MAX_AGE] (see ``src/config/enoe.yaml``)."""
+    [ENOE_MIN_AGE, ENOE_MAX_AGE] (see ``config/enoe.yaml``)."""
     persons = mxcensus.load_enoe_persons(
         period=period, ent=state_code, canonical_filter=False, labels=False  # raw INEGI codes; the stage-2 mappings key on them
     )

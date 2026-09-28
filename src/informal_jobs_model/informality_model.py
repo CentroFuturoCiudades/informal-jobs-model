@@ -16,7 +16,7 @@ from .diagnose_enoe_od_dataframes import filter_common_geography
 from .common import NO_ESPECIFICADO, SECTOR_CLASSES, load_config, assert_known_levels, make_tree_preprocessor, fit_level_model, predict_level_shares, bootstrap_by_group, cross_validate_grouped, marginal_log_loss, reweight_to_target_profile, calculate_calibration_table, calibration_metrics, fit_isotonic_calibrator, select_one_se, attach_training_level_shares, predict_proba_marginalizing, build_category_levels, count_levels_without_training_support, identify_missing_category, normalize_predicted_probabilities, normalize_sample_weights, prepare_model_features, split_feature_types
 
 
-# Feature lists come from src/config/models.yaml ("informality"); the robust specification drops escolaridad.
+# Feature lists come from config/models.yaml ("informality"); the robust specification drops escolaridad.
 _INFORMALITY = load_config("models")["informality"]
 INFORMALITY_FEATURES = list(_INFORMALITY["features"])
 INFORMALITY_ROBUST_FEATURES = [f for f in INFORMALITY_FEATURES if f != "escolaridad"]
@@ -580,13 +580,6 @@ def calculate_informality_model_usage(od):
     usage["weighted_share"] = usage["weighted_population"] / usage["weighted_population"].sum()
 
     return usage
-
-def calculate_expected_informality_by_variable(od, column):
-    grouped = od.groupby(column, dropna=False).agg(weighted_population=("expansion_factor", "sum"), expected_informal_population=("expected_informal_population", "sum"), expected_formal_population=("expected_formal_population", "sum")).reset_index()
-
-    grouped["expected_informality_rate"] = grouped["expected_informal_population"] / grouped["weighted_population"]
-
-    return grouped
 
 def informality_test_metrics_with_uncertainty(model, test_data, features=INFORMALITY_FEATURES, n_bootstrap=500, random_state=42):
     """Held-out log loss / AUC / aggregate gap with household-bootstrap intervals, plus the weighted-marginal baseline."""
