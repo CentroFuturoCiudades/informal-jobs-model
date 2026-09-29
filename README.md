@@ -1,3 +1,9 @@
+> **Archived (2026-09-28).** These models now live in [eodgdl](https://github.com/CentroFuturoCiudades/eodgdl)'s imputation
+> engine, `eodgdl.impute` (v0.4.0+): the tasks `informality`, `educacion_jefe`, `amai_banos` and `amai_dormitorios`, and the
+> chains `sector_informality` (giro → informality) and `nse`, run with `eodgdl impute score | retrain | evaluate`. The
+> figures of these notebooks are redrawn from eodgdl's outputs by its `reports/imputation_figures.qmd`. This repository
+> is kept, read-only, for its history.
+
 <div align="center">
 
 # Classification Model for Formal and Informal Jobs
